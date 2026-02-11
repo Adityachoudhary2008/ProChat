@@ -29,7 +29,10 @@ const io = new Server(server, {
 
 // Middleware
 app.use(cors({
-    origin: ["https://adomeet.netlify.app", "https://adocachat.netlify.app", "http://localhost:5173"],
+    origin: (origin, callback) => {
+        logger.info(`Incoming request origin: ${origin}`);
+        callback(null, true); // Allow all for debugging
+    },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
@@ -40,6 +43,11 @@ app.use(helmet({
     contentSecurityPolicy: false,
 }));
 app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
+
+// Health Check
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', environment: process.env.NODE_ENV });
+});
 
 // Database Connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/prochat';
