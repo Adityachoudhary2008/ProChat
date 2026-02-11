@@ -27,11 +27,21 @@ const io = new Server(server, {
     }
 });
 
+// Error Handling Listeners
+process.on('uncaughtException', (err) => {
+    logger.error('Uncaught Exception:', err);
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 // Middleware
 app.use(cors({
     origin: (origin, callback) => {
         logger.info(`Incoming request origin: ${origin}`);
-        callback(null, true); // Allow all for debugging
+        callback(null, true);
     },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -49,11 +59,18 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', environment: process.env.NODE_ENV });
 });
 
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
+});
+
 // Database Connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/prochat';
 mongoose.connect(MONGODB_URI)
     .then(() => logger.info('Connected to MongoDB'))
-    .catch((err) => logger.error('MongoDB connection error:', err));
+    .catch((err) => {
+        logger.error('MongoDB connection error:', err);
+        // Don't kill the server yet, just log it
+    });
 
 // Routes
 app.use('/api/user', userRoutes);
@@ -142,8 +159,8 @@ io.on('connection', (socket) => {
 app.use(notFound);
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
+const PORT = Number(process.env.PORT) || 5000;
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
     logger.info(`Server running on port ${PORT}`);
 });
