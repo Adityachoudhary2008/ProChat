@@ -19,35 +19,31 @@ import path from 'path';
 dotenv.config();
 
 const app = express();
+app.set('trust proxy', 1);
 
-// --- FAIL-SAFE CORS MIDDLEWARE ---
+// --- AGGRESSIVE FAIL-SAFE CORS ---
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    console.log(`Incoming Request: ${req.method} ${req.url} | Origin: ${origin}`);
+
+    // Explicitly allow the Netlify origin
+    res.setHeader('Access-Control-Allow-Origin', 'https://adomeet.netlify.app');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+    next();
+});
+// ---------------------------------
+
 const allowedOrigins = [
     'https://adomeet.netlify.app',
     'http://localhost:5173',
     'http://localhost:3000'
 ];
-
-app.use((req, res, next) => {
-    const origin = req.headers.origin as string;
-
-    // In development, allow all origins
-    if (process.env.NODE_ENV !== 'production') {
-        res.setHeader('Access-Control-Allow-Origin', origin || '*');
-    } else if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-    }
-
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Authorization, Accept, Origin');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-    // Handle preflight
-    if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
-    }
-    next();
-});
-// ---------------------------------
 
 const server = http.createServer(app);
 const io = new Server(server, {
