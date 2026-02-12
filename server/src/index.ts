@@ -38,10 +38,22 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Middleware
+const allowedOrigins = [
+    'https://adomeet.netlify.app',
+    'http://localhost:5173',
+    'http://localhost:3000'
+];
+
 app.use(cors({
     origin: (origin, callback) => {
-        logger.info(`Incoming request origin: ${origin}`);
-        callback(null, true);
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+            callback(null, true);
+        } else {
+            logger.info(`Origin rejected: ${origin}`);
+            callback(new Error('Not allowed by CORS'));
+        }
     },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
