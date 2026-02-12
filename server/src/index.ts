@@ -113,8 +113,20 @@ app.get('/health', (req: Request, res: Response) => {
 
 // Database Connection
 console.log('[STARTUP] Connecting to MongoDB...');
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/prochat';
-mongoose.connect(MONGODB_URI)
+const MONGODB_URI = process.env.MONGODB_URI;
+
+if (!MONGODB_URI) {
+    console.error('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+    console.error('!! [CRITICAL ERROR] MONGODB_URI is MISSING in environment !!');
+    console.error('!! Falling back to localhost (WILL FAIL ON RAILWAY)       !!');
+    console.error('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+} else {
+    const maskedUri = MONGODB_URI.replace(/:([^@]+)@/, ':****@');
+    console.log(`[STARTUP] Using MONGODB_URI: ${maskedUri.split('@')[1] || 'URL Hidden'}`);
+}
+
+const connectionString = MONGODB_URI || 'mongodb://localhost:27017/prochat';
+mongoose.connect(connectionString)
     .then(() => {
         console.log('[STARTUP] Connected to MongoDB');
         logger.info('Connected to MongoDB');
