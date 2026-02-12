@@ -1,11 +1,10 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import http from 'http';
-import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import mongoose from 'mongoose';
-import { Server } from 'socket.io';
+import { Server, Socket } from 'socket.io';
 import logger from './utils/logger';
 import { errorHandler } from './middleware/errorMiddleware';
 import { notFound } from './middleware/notFound';
@@ -20,21 +19,21 @@ dotenv.config();
 
 const app = express();
 
-// --- EXTREME FAIL-SAFE CORS (FINAL ATTEMPT) ---
+// --- SUPER AGGRESSIVE FAIL-SAFE CORS ---
 app.set('trust proxy', 1);
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
-    console.log(`[CORS DEBUG] Method: ${req.method} | Origin: ${origin} | URL: ${req.url}`);
+    console.log(`[CORS DEBUG] ${new Date().toISOString()} | Method: ${req.method} | Origin: ${origin} | URL: ${req.url}`);
 
-    // Hardcode everyone or specific (specific is safer for credentials)
-    res.header('Access-Control-Allow-Origin', 'https://adomeet.netlify.app');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, token');
-    res.header('Access-Control-Allow-Credentials', 'true');
+    // Explicitly allow the Netlify origin
+    res.setHeader('Access-Control-Allow-Origin', 'https://adomeet.netlify.app');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, token');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
 
-    // Preflight check bypass
     if (req.method === 'OPTIONS') {
-        console.log('[CORS DEBUG] Handled Preflight OPTIONS');
+        console.log('[CORS DEBUG] Handled Preflight OPTIONS successfully');
         return res.status(200).json({});
     }
     next();
@@ -73,11 +72,16 @@ app.use(helmet({
 app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
 // Health Check
-app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', environment: process.env.NODE_ENV });
+app.get('/api/health', (req: Request, res: Response) => {
+    res.json({
+        status: 'ok',
+        environment: process.env.NODE_ENV,
+        timestamp: new Date().toISOString(),
+        headers: req.headers
+    });
 });
 
-app.get('/health', (req, res) => {
+app.get('/health', (req: Request, res: Response) => {
     res.json({ status: 'ok' });
 });
 
@@ -87,7 +91,6 @@ mongoose.connect(MONGODB_URI)
     .then(() => logger.info('Connected to MongoDB'))
     .catch((err) => {
         logger.error('MongoDB connection error:', err);
-        // Don't kill the server yet, just log it
     });
 
 // Routes
@@ -105,36 +108,33 @@ app.use('/uploads', express.static(path.join(__root, '/uploads')));
 if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__root, '/client/dist')));
 
-    app.get('*', (req, res) =>
+    app.get('*', (req: Request, res: Response) =>
         res.sendFile(path.resolve(__root, 'client', 'dist', 'index.html'))
     );
 } else {
-    app.get('/', (req, res) => {
+    app.get('/', (req: Request, res: Response) => {
         res.send('API is running...');
     });
 }
 
 // Socket.IO
-io.on('connection', (socket) => {
+io.on('connection', (socket: Socket) => {
     logger.info('Connected to socket.io');
 
-    socket.on('setup', (userData) => {
+    socket.on('setup', (userData: any) => {
         socket.join(userData._id);
         socket.emit('connected');
     });
 
-    socket.on('join chat', (room) => {
+    socket.on('join chat', (room: string) => {
         socket.join(room);
         logger.info(`User Joined Room: ${room}`);
     });
 
-    socket.on('typing', (room) => socket.in(room).emit('typing'));
-    socket.on('stop typing', (room) => socket.in(room).emit('stop typing'));
+    socket.on('typing', (room: string) => socket.in(room).emit('typing'));
+    socket.on('stop typing', (room: string) => socket.in(room).emit('stop typing'));
 
-    socket.on('typing', (room) => socket.in(room).emit('typing'));
-    socket.on('stop typing', (room) => socket.in(room).emit('stop typing'));
-
-    socket.on('new message', (newMessageRecieved) => {
+    socket.on('new message', (newMessageRecieved: any) => {
         var chat = newMessageRecieved.chat;
 
         if (!chat.users) return logger.error('chat.users not defined');
@@ -147,29 +147,22 @@ io.on('connection', (socket) => {
     });
 
     // WebRTC Signaling
-    socket.on('join meeting', (meetingId) => {
+    socket.on('join meeting', (meetingId: string) => {
         socket.join(meetingId);
         logger.info(`User joined meeting ${meetingId}`);
         socket.to(meetingId).emit('user-joined', socket.id);
     });
 
-    socket.on('call-user', ({ userToCall, signalData, from, name }) => {
+    socket.on('call-user', ({ userToCall, signalData, from, name }: any) => {
         io.to(userToCall).emit("call-user", { signal: signalData, from, name });
     });
 
-    socket.on("answer-call", (data) => {
+    socket.on("answer-call", (data: any) => {
         io.to(data.to).emit("call-accepted", data.signal);
     });
 
-    // Simple Peer signaling usually involves offer/answer/ice-candidate
-    // For multi-user, it's complex. Let's start with 1-on-1 or simple mesh.
-    // We'll stick to a simple signal relay for now.
-
     socket.off('setup', () => {
         logger.info('USER DISCONNECTED');
-        // socket.leave(userData._id); // userData is not defined here scope-wise, but we can fix later or ignore for now as 'setup' off is rarely explicitly called this way in this pattern.
-        // Actually, proper cleanup:
-        // socket.disconnect();
     });
 });
 
