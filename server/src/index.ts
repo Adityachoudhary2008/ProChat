@@ -19,11 +19,42 @@ import path from 'path';
 dotenv.config();
 
 const app = express();
+
+// --- FAIL-SAFE CORS MIDDLEWARE ---
+const allowedOrigins = [
+    'https://adomeet.netlify.app',
+    'http://localhost:5173',
+    'http://localhost:3000'
+];
+
+app.use((req, res, next) => {
+    const origin = req.headers.origin as string;
+
+    // In development, allow all origins
+    if (process.env.NODE_ENV !== 'production') {
+        res.setHeader('Access-Control-Allow-Origin', origin || '*');
+    } else if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Authorization, Accept, Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+    // Handle preflight
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
+// ---------------------------------
+
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
+        origin: allowedOrigins,
+        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        credentials: true
     }
 });
 
@@ -36,29 +67,6 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason, promise) => {
     logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
-
-// Middleware
-const allowedOrigins = [
-    'https://adomeet.netlify.app',
-    'http://localhost:5173',
-    'http://localhost:3000'
-];
-
-app.use(cors({
-    origin: (origin, callback) => {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
-            callback(null, true);
-        } else {
-            logger.info(`Origin rejected: ${origin}`);
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-}));
 app.use(express.json());
 app.use(helmet({
     crossOriginResourcePolicy: false,
