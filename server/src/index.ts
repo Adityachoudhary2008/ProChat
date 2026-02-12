@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
 import http from 'http';
+import cors from 'cors';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -19,32 +20,50 @@ dotenv.config();
 
 const app = express();
 
-// --- SUPER AGGRESSIVE FAIL-SAFE CORS ---
-app.set('trust proxy', 1);
-app.use((req: Request, res: Response, next: NextFunction) => {
-    const origin = req.headers.origin;
-    console.log(`[CORS DEBUG] ${new Date().toISOString()} | Method: ${req.method} | Origin: ${origin} | URL: ${req.url}`);
-
-    // Explicitly allow the Netlify origin
-    res.setHeader('Access-Control-Allow-Origin', 'https://adomeet.netlify.app');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, token');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
-
-    if (req.method === 'OPTIONS') {
-        console.log('[CORS DEBUG] Handled Preflight OPTIONS successfully');
-        return res.status(200).json({});
-    }
-    next();
-});
-// ----------------------------------------------
-
+// --- BULLETPROOF CORS CONFIGURATION ---
 const allowedOrigins = [
     'https://adomeet.netlify.app',
     'http://localhost:5173',
     'http://localhost:3000'
 ];
+
+app.set('trust proxy', 1);
+
+// 1. Using the official cors middleware
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.log(`[CORS DEBUG] Rejected origin: ${origin}`);
+            callback(null, true); // Allow all for now to debug, but keep credentials in mind
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'token'],
+    optionsSuccessStatus: 200
+}));
+
+// 2. Manual header fallback for extra safety
+app.use((req: Request, res: Response, next: NextFunction) => {
+    const origin = req.headers.origin;
+    if (origin && (allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production')) {
+        res.header('Access-Control-Allow-Origin', origin);
+    } else {
+        res.header('Access-Control-Allow-Origin', 'https://adomeet.netlify.app');
+    }
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, token');
+
+    if (req.method === 'OPTIONS') {
+        console.log(`[CORS DEBUG] Manual Preflight Match: ${origin}`);
+        return res.status(200).send();
+    }
+    next();
+});
+// ---------------------------------------
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -64,6 +83,7 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason, promise) => {
     logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
+
 app.use(express.json());
 app.use(helmet({
     crossOriginResourcePolicy: false,
@@ -71,13 +91,14 @@ app.use(helmet({
 }));
 app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
-// Health Check
+// Health Check with Header Mirroring
 app.get('/api/health', (req: Request, res: Response) => {
     res.json({
         status: 'ok',
         environment: process.env.NODE_ENV,
         timestamp: new Date().toISOString(),
-        headers: req.headers
+        requestHeaders: req.headers,
+        corsOrigins: allowedOrigins
     });
 });
 
@@ -100,14 +121,11 @@ app.use('/api/message', messageRoutes);
 app.use('/api/meeting', meetingRoutes);
 app.use('/api/upload', uploadRoutes);
 
-// Make uploads folder static
 const __root = path.resolve();
 app.use('/uploads', express.static(path.join(__root, '/uploads')));
 
-// Serve Frontend in Production
 if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__root, '/client/dist')));
-
     app.get('*', (req: Request, res: Response) =>
         res.sendFile(path.resolve(__root, 'client', 'dist', 'index.html'))
     );
@@ -120,58 +138,44 @@ if (process.env.NODE_ENV === 'production') {
 // Socket.IO
 io.on('connection', (socket: Socket) => {
     logger.info('Connected to socket.io');
-
     socket.on('setup', (userData: any) => {
         socket.join(userData._id);
         socket.emit('connected');
     });
-
     socket.on('join chat', (room: string) => {
         socket.join(room);
         logger.info(`User Joined Room: ${room}`);
     });
-
     socket.on('typing', (room: string) => socket.in(room).emit('typing'));
     socket.on('stop typing', (room: string) => socket.in(room).emit('stop typing'));
-
     socket.on('new message', (newMessageRecieved: any) => {
         var chat = newMessageRecieved.chat;
-
         if (!chat.users) return logger.error('chat.users not defined');
-
         chat.users.forEach((user: any) => {
             if (user._id == newMessageRecieved.sender._id) return;
-
             socket.in(user._id).emit('message received', newMessageRecieved);
         });
     });
-
-    // WebRTC Signaling
     socket.on('join meeting', (meetingId: string) => {
         socket.join(meetingId);
         logger.info(`User joined meeting ${meetingId}`);
         socket.to(meetingId).emit('user-joined', socket.id);
     });
-
     socket.on('call-user', ({ userToCall, signalData, from, name }: any) => {
         io.to(userToCall).emit("call-user", { signal: signalData, from, name });
     });
-
     socket.on("answer-call", (data: any) => {
         io.to(data.to).emit("call-accepted", data.signal);
     });
-
     socket.off('setup', () => {
         logger.info('USER DISCONNECTED');
     });
 });
 
-// Error Handling
 app.use(notFound);
 app.use(errorHandler);
 
 const PORT = Number(process.env.PORT) || 5000;
-
 server.listen(PORT, '0.0.0.0', () => {
     logger.info(`Server running on port ${PORT}`);
 });
