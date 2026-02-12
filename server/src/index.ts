@@ -95,11 +95,13 @@ app.use(helmet({
 }));
 app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
-// Health Check with Header Mirroring
+// Health Check with Header and DB Status Mirroring
 app.get('/api/health', (req: Request, res: Response) => {
     console.log('[HEALTH CHECK] Pinged');
     res.json({
         status: 'ok',
+        dbStatus: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+        dbReadyState: mongoose.connection.readyState,
         environment: process.env.NODE_ENV,
         timestamp: new Date().toISOString(),
         requestHeaders: req.headers,
