@@ -7,18 +7,24 @@ const logger = winston.createLogger({
         winston.format.json()
     ),
     transports: [
-        new winston.transports.File({ filename: 'error.log', level: 'error' }),
-        new winston.transports.File({ filename: 'combined.log' }),
+        // Always log to console in production and development for Railway/Cloud compatibility
+        new winston.transports.Console({
+            format: winston.format.combine(
+                winston.format.colorize(),
+                winston.format.simple()
+            ),
+        }),
     ],
 });
 
-if (process.env.NODE_ENV !== 'production') {
-    logger.add(new winston.transports.Console({
-        format: winston.format.combine(
-            winston.format.colorize(),
-            winston.format.simple()
-        ),
-    }));
+// Add file logging only as an addition, not a primary transport
+if (process.env.NODE_ENV !== 'test') { // Don't log to files in tests
+    try {
+        logger.add(new winston.transports.File({ filename: 'error.log', level: 'error' }));
+        logger.add(new winston.transports.File({ filename: 'combined.log' }));
+    } catch (err) {
+        console.warn('File logging failed, using console only:', err);
+    }
 }
 
 export default logger;

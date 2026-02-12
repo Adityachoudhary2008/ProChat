@@ -19,24 +19,26 @@ import path from 'path';
 dotenv.config();
 
 const app = express();
+app.set('trust proxy', 1);
 
-// --- BULLETPROOF CORS CONFIGURATION ---
+// --- BULLETPROOF CORS CONFIGURATION (TOP OF STACK) ---
 const allowedOrigins = [
     'https://adomeet.netlify.app',
     'http://localhost:5173',
     'http://localhost:3000'
 ];
 
-app.set('trust proxy', 1);
+console.log('[STARTUP] Initializing middleware stack...');
 
 // 1. Using the official cors middleware
 app.use(cors({
     origin: (origin, callback) => {
+        // If no origin (like curl) or explicitly allowed
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
-            console.log(`[CORS DEBUG] Rejected origin: ${origin}`);
-            callback(null, true); // Allow all for now to debug, but keep credentials in mind
+            console.log(`[CORS DEBUG] Origin restricted but allowed for debug: ${origin}`);
+            callback(null, true);
         }
     },
     credentials: true,
@@ -45,10 +47,10 @@ app.use(cors({
     optionsSuccessStatus: 200
 }));
 
-// 2. Manual header fallback for extra safety
+// 2. Manual header fallback for maximum compatibility
 app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
-    if (origin && (allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production')) {
+    if (origin && allowedOrigins.includes(origin)) {
         res.header('Access-Control-Allow-Origin', origin);
     } else {
         res.header('Access-Control-Allow-Origin', 'https://adomeet.netlify.app');
@@ -58,12 +60,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, token');
 
     if (req.method === 'OPTIONS') {
-        console.log(`[CORS DEBUG] Manual Preflight Match: ${origin}`);
         return res.status(200).send();
     }
     next();
 });
-// ---------------------------------------
+// -----------------------------------------------------
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -76,14 +77,17 @@ const io = new Server(server, {
 
 // Error Handling Listeners
 process.on('uncaughtException', (err) => {
+    console.error('[CRITICAL] Uncaught Exception:', err);
     logger.error('Uncaught Exception:', err);
     process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
+    console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
     logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
+console.log('[STARTUP] Configuring standard middleware...');
 app.use(express.json());
 app.use(helmet({
     crossOriginResourcePolicy: false,
@@ -93,6 +97,7 @@ app.use(morgan('combined', { stream: { write: (message) => logger.info(message.t
 
 // Health Check with Header Mirroring
 app.get('/api/health', (req: Request, res: Response) => {
+    console.log('[HEALTH CHECK] Pinged');
     res.json({
         status: 'ok',
         environment: process.env.NODE_ENV,
@@ -107,14 +112,20 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // Database Connection
+console.log('[STARTUP] Connecting to MongoDB...');
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/prochat';
 mongoose.connect(MONGODB_URI)
-    .then(() => logger.info('Connected to MongoDB'))
+    .then(() => {
+        console.log('[STARTUP] Connected to MongoDB');
+        logger.info('Connected to MongoDB');
+    })
     .catch((err) => {
+        console.error('[STARTUP] MongoDB connection error:', err);
         logger.error('MongoDB connection error:', err);
     });
 
 // Routes
+console.log('[STARTUP] Registering routes...');
 app.use('/api/user', userRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/message', messageRoutes);
@@ -124,6 +135,7 @@ app.use('/api/upload', uploadRoutes);
 const __root = path.resolve();
 app.use('/uploads', express.static(path.join(__root, '/uploads')));
 
+// Serve Frontend in Production
 if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__root, '/client/dist')));
     app.get('*', (req: Request, res: Response) =>
@@ -176,6 +188,8 @@ app.use(notFound);
 app.use(errorHandler);
 
 const PORT = Number(process.env.PORT) || 5000;
+console.log(`[STARTUP] Attempting to listen on port ${PORT}...`);
 server.listen(PORT, '0.0.0.0', () => {
+    console.log(`[SUCCESS] Server running on port ${PORT}`);
     logger.info(`Server running on port ${PORT}`);
 });
