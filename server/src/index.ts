@@ -19,25 +19,27 @@ import path from 'path';
 dotenv.config();
 
 const app = express();
-app.set('trust proxy', 1);
 
-// --- AGGRESSIVE FAIL-SAFE CORS ---
+// --- EXTREME FAIL-SAFE CORS (FINAL ATTEMPT) ---
+app.set('trust proxy', 1);
 app.use((req, res, next) => {
     const origin = req.headers.origin;
-    console.log(`Incoming Request: ${req.method} ${req.url} | Origin: ${origin}`);
+    console.log(`[CORS DEBUG] Method: ${req.method} | Origin: ${origin} | URL: ${req.url}`);
 
-    // Explicitly allow the Netlify origin
-    res.setHeader('Access-Control-Allow-Origin', 'https://adomeet.netlify.app');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    // Hardcode everyone or specific (specific is safer for credentials)
+    res.header('Access-Control-Allow-Origin', 'https://adomeet.netlify.app');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, token');
+    res.header('Access-Control-Allow-Credentials', 'true');
 
+    // Preflight check bypass
     if (req.method === 'OPTIONS') {
-        return res.status(200).end();
+        console.log('[CORS DEBUG] Handled Preflight OPTIONS');
+        return res.status(200).json({});
     }
     next();
 });
-// ---------------------------------
+// ----------------------------------------------
 
 const allowedOrigins = [
     'https://adomeet.netlify.app',
