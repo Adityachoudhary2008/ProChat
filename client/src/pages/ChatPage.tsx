@@ -1,18 +1,19 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
-import { fetchChats, setSelectedChat, accessChat, fetchMessages, sendMessage, addMessage } from '../features/chat/chatSlice';
+import { fetchChats, setSelectedChat, accessChat, fetchMessages, sendMessage, addMessage, updateLatestMessage } from '../features/chat/chatSlice';
 import api from '../services/api';
 import UserListItem from '../components/UserListItem';
 import { io, Socket } from 'socket.io-client';
 import toast from 'react-hot-toast';
 
-const ENDPOINT = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5001';
-var socket: Socket;
+const ENDPOINT = import.meta.env.VITE_SOCKET_URL || 'https://prochat-production.up.railway.app';
 
 const ChatPage: React.FC = () => {
     const dispatch = useAppDispatch();
     const { user } = useAppSelector((state) => state.auth);
     const { chats, selectedChat, isLoading, messages } = useAppSelector((state) => state.chat);
+
+    const socket = useRef<Socket | null>(null);
 
     const [search, setSearch] = useState('');
     const [searchResult, setSearchResult] = useState([]);
@@ -26,34 +27,56 @@ const ChatPage: React.FC = () => {
 
     useEffect(() => {
         if (user) {
-            socket = io(ENDPOINT);
-            socket.emit('setup', user);
-            socket.on('connected', () => { });
-            socket.on('typing', () => setIsTyping(true));
-            socket.on('stop typing', () => setIsTyping(false));
-            socket.on('message received', (newMessageRecieved) => {
-                dispatch(addMessage(newMessageRecieved));
-                const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
-                audio.play();
+            socket.current = io(ENDPOINT);
+            socket.current.emit('setup', user);
+            socket.current.on('connected', () => { });
+            socket.current.on('typing', (room: string) => {
+                if (selectedChat?._id === room) setIsTyping(true);
             });
+            socket.current.on('stop typing', (room: string) => {
+                if (selectedChat?._id === room) setIsTyping(false);
+            });
+
+            socket.current.on('message received', (newMessageReceived: any) => {
+                // Update sidebar for every received message
+                dispatch(updateLatestMessage(newMessageReceived));
+
+                // If chat is not selected or doesn't match current chat, notify
+                if (!selectedChat || selectedChat._id !== newMessageReceived.chat._id) {
+                    toast.success(`New message from ${newMessageReceived.sender.name}`, {
+                        icon: '💬',
+                        position: 'top-right'
+                    });
+                    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
+                    audio.play().catch(() => { });
+                } else {
+                    dispatch(addMessage(newMessageReceived));
+                    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
+                    audio.play().catch(() => { });
+                }
+            });
+
+            return () => {
+                socket.current?.disconnect();
+            };
         }
-    }, [user, dispatch]);
+    }, [user, selectedChat?._id, dispatch]);
 
     useEffect(() => {
         if (selectedChat) {
             dispatch(fetchMessages(selectedChat._id));
-            socket.emit("join chat", selectedChat._id);
+            socket.current?.emit("join chat", selectedChat._id);
         }
     }, [selectedChat, dispatch]);
 
     const typingHandler = (e: React.ChangeEvent<HTMLInputElement>) => {
         setNewMessage(e.target.value);
 
-        if (!socket) return;
+        if (!socket.current) return;
 
         if (!typing) {
             setTyping(true);
-            socket.emit("typing", selectedChat?._id);
+            socket.current.emit("typing", selectedChat?._id);
         }
 
         let lastTypingTime = new Date().getTime();
@@ -61,8 +84,8 @@ const ChatPage: React.FC = () => {
         setTimeout(() => {
             var timeNow = new Date().getTime();
             var timeDiff = timeNow - lastTypingTime;
-            if (timeDiff >= timerLength && typing) {
-                socket.emit("stop typing", selectedChat?._id);
+            if (timeDiff >= timerLength) {
+                socket.current?.emit("stop typing", selectedChat?._id);
                 setTyping(false);
             }
         }, timerLength);
@@ -108,10 +131,30 @@ const ChatPage: React.FC = () => {
                 const messageData = { content: newMessage, chatId: selectedChat._id, image: imageUrl };
                 setNewMessage('');
                 const data = await dispatch(sendMessage(messageData)).unwrap();
-                socket.emit("new message", data);
+                socket.current?.emit("new message", data);
             } catch (error) {
                 toast.error("Failed to send message");
             }
+        }
+    };
+
+    const handleStartMeeting = async () => {
+        if (!selectedChat) return;
+        try {
+            const { data } = await api.post('/meeting');
+            const meetingLink = `${window.location.origin}/meeting/${data.meetingId}`;
+
+            // Automatically send a message with the meeting link
+            const messageData = {
+                content: `Hey everyone, I've started a video meeting! Click here to join: ${meetingLink}`,
+                chatId: selectedChat._id
+            };
+            const msgData = await dispatch(sendMessage(messageData)).unwrap();
+            socket.current?.emit("new message", msgData);
+
+            window.open(`/meeting/${data.meetingId}`, '_blank');
+        } catch (e) {
+            toast.error("Failed to create meeting");
         }
     };
 
@@ -363,15 +406,26 @@ const ChatPage: React.FC = () => {
                                     </h3>
                                     <div className="flex items-center gap-2">
                                         <span className="w-2 h-2 bg-green-500 rounded-full block animate-pulse"></span>
-                                        <span className="text-xs text-slate-500 font-medium">Online</span>
+                                        <span className="text-xs text-slate-500 font-medium">{isTyping ? 'typing...' : 'Online'}</span>
                                     </div>
                                 </div>
                             </div>
-                            <button className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="size-6">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 12.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 18.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z" />
-                                </svg>
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={handleStartMeeting}
+                                    className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors"
+                                    title="Start Video Call"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="size-6">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+                                    </svg>
+                                </button>
+                                <button className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-full transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="size-6">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 12.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 18.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z" />
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
 
                         {/* Messages Content */}
@@ -407,7 +461,7 @@ const ChatPage: React.FC = () => {
                                             <span className="w-1 h-1 bg-slate-400 rounded-full animate-bounce [animation-delay:0.2s]"></span>
                                             <span className="w-1 h-1 bg-slate-400 rounded-full animate-bounce [animation-delay:0.4s]"></span>
                                         </span>
-                                        Someone is typing...
+                                        {selectedChat.isGroupChat ? 'Someone is typing...' : `${selectedChat.users.find((u: any) => u._id !== user?._id)?.name} is typing...`}
                                     </div>
                                 </div>
                             )}

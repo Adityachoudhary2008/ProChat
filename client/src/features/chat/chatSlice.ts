@@ -81,6 +81,14 @@ export const chatSlice = createSlice({
         },
         addMessage: (state, action: PayloadAction<any>) => {
             state.messages.push(action.payload);
+        },
+        updateLatestMessage: (state, action: PayloadAction<any>) => {
+            const chatToUpdate = state.chats.find(c => c._id === action.payload.chat._id);
+            if (chatToUpdate) {
+                chatToUpdate.latestMessage = action.payload;
+                // Move the updated chat to the top of the list
+                state.chats = [chatToUpdate, ...state.chats.filter(c => c._id !== chatToUpdate._id)];
+            }
         }
     },
     extraReducers: (builder) => {
@@ -131,5 +139,5 @@ export const chatSlice = createSlice({
     },
 });
 
-export const { setSelectedChat, addMessage } = chatSlice.actions;
+export const { setSelectedChat, addMessage, updateLatestMessage } = chatSlice.actions;
 export default chatSlice.reducer;
