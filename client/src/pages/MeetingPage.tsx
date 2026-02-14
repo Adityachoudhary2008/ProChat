@@ -9,7 +9,7 @@ import { useAppSelector } from '../app/hooks';
 // Let's assume standard Vite config or we might need to patch it. 
 // For now, I'll write the logic.
 
-const ENDPOINT = 'http://localhost:5000';
+const ENDPOINT = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5001';
 
 const MeetingPage: React.FC = () => {
     const { meetingId } = useParams();
