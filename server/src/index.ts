@@ -70,15 +70,18 @@ app.use('/api/message', messageRoutes);
 app.use('/api/meeting', meetingRoutes);
 app.use('/api/upload', uploadRoutes);
 
-const __root = process.cwd();
-const uploadsPath = path.join(__root, 'uploads');
+const uploadsPath = path.resolve(__dirname, '..', 'uploads');
 app.use('/uploads', express.static(uploadsPath));
 
 // Static files (Production)
 if (process.env.NODE_ENV === 'production') {
-    const clientPath = path.join(__root, '..', 'client', 'dist'); // Standard workspace layout
+    // index.js is in server/dist/index.js
+    // .. -> server/
+    // ../.. -> root/
+    const clientPath = path.resolve(__dirname, '..', '..', 'client', 'dist');
     console.log(`[STARTUP] Static Path: ${clientPath}`);
     app.use(express.static(clientPath));
+
     app.get('*', (req, res, next) => {
         if (req.path.startsWith('/api')) {
             next();
