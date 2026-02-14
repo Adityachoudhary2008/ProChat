@@ -28,12 +28,12 @@ const allowedOrigins = [
     'http://localhost:3000'
 ];
 
+console.log(`[STARTUP] CWD: ${process.cwd()}`);
 console.log('[STARTUP] Initializing middleware stack...');
 
 // 1. Using the official cors middleware
 app.use(cors({
     origin: (origin, callback) => {
-        // If no origin (like curl) or explicitly allowed
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
@@ -47,7 +47,7 @@ app.use(cors({
     optionsSuccessStatus: 200
 }));
 
-// 2. Manual header fallback for maximum compatibility
+// 2. Manual header fallback
 app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
     if (origin && allowedOrigins.includes(origin)) {
@@ -95,7 +95,7 @@ app.use(helmet({
 }));
 app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
-// Health Check with Header and DB Status Mirroring
+// Health Check with Enhanced Diagnostics
 app.get('/api/health', (req: Request, res: Response) => {
     console.log('[HEALTH CHECK] Pinged');
     res.json({
@@ -105,12 +105,14 @@ app.get('/api/health', (req: Request, res: Response) => {
         environment: process.env.NODE_ENV,
         timestamp: new Date().toISOString(),
         requestHeaders: req.headers,
-        corsOrigins: allowedOrigins
+        corsOrigins: allowedOrigins,
+        port: process.env.PORT,
+        cwd: process.cwd()
     });
 });
 
 app.get('/health', (req: Request, res: Response) => {
-    res.json({ status: 'ok' });
+    res.json({ status: 'ok', startup: true });
 });
 
 // Database Connection
@@ -118,10 +120,7 @@ console.log('[STARTUP] Connecting to MongoDB...');
 const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
-    console.error('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
     console.error('!! [CRITICAL ERROR] MONGODB_URI is MISSING in environment !!');
-    console.error('!! Falling back to localhost (WILL FAIL ON RAILWAY)       !!');
-    console.error('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
 } else {
     const maskedUri = MONGODB_URI.replace(/:([^@]+)@/, ':****@');
     console.log(`[STARTUP] Using MONGODB_URI: ${maskedUri.split('@')[1] || 'URL Hidden'}`);
@@ -146,22 +145,40 @@ app.use('/api/message', messageRoutes);
 app.use('/api/meeting', meetingRoutes);
 app.use('/api/upload', uploadRoutes);
 
-const __root = path.resolve();
-app.use('/uploads', express.static(path.join(__root, '/uploads')));
+const __root = process.cwd();
+app.use('/uploads', express.static(path.join(__root, 'uploads')));
 
 // Serve Frontend in Production
 if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__root, '/client/dist')));
-    app.get('*', (req: Request, res: Response) =>
-        res.sendFile(path.resolve(__root, 'client', 'dist', 'index.html'))
-    );
+    // Determine static path relative to CWD
+    const clientPath = path.join(__root, 'client', 'dist');
+    const clientPathFallback = path.join(__root, '..', 'client', 'dist');
+
+    console.log(`[STARTUP] Serving static files from: ${clientPath}`);
+    app.use(express.static(clientPath));
+    app.use(express.static(clientPathFallback));
+
+    app.get('*', (req: Request, res: Response) => {
+        const indexPath = path.join(clientPath, 'index.html');
+        const indexPathFallback = path.join(clientPathFallback, 'index.html');
+
+        res.sendFile(indexPath, (err) => {
+            if (err) {
+                res.sendFile(indexPathFallback, (err2) => {
+                    if (err2) {
+                        res.status(404).send('Static files not found');
+                    }
+                });
+            }
+        });
+    });
 } else {
     app.get('/', (req: Request, res: Response) => {
         res.send('API is running...');
     });
 }
 
-// Socket.IO
+// Socket.IO Logic
 io.on('connection', (socket: Socket) => {
     logger.info('Connected to socket.io');
     socket.on('setup', (userData: any) => {
@@ -201,9 +218,10 @@ io.on('connection', (socket: Socket) => {
 app.use(notFound);
 app.use(errorHandler);
 
-const PORT = Number(process.env.PORT) || 5000;
+// VITAL: Railway standard port is 8080 if not specified.
+const PORT = process.env.PORT || 8080;
 console.log(`[STARTUP] Attempting to listen on port ${PORT}...`);
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, () => {
     console.log(`[SUCCESS] Server running on port ${PORT}`);
     logger.info(`Server running on port ${PORT}`);
 });
