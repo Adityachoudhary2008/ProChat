@@ -118,10 +118,24 @@ const rawPort = process.env.PORT || '8080';
 const PORT = parseInt(rawPort, 10);
 console.log(`[STARTUP] Port: ${PORT} (from ${rawPort})`);
 
+// 10-second Heartbeat for Railway Debugging
+setInterval(() => {
+    console.log(`[HEARTBEAT] ${new Date().toISOString()} | Port: ${PORT} | DB: ${mongoose.connection.readyState}`);
+}, 10000);
+
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`[SUCCESS] Listening on 0.0.0.0:${PORT}`);
     logger.info(`Server Ready on port ${PORT}`);
 });
 
-process.on('uncaughtException', (err) => { console.error('Uncaught:', err); process.exit(1); });
-process.on('unhandledRejection', (err) => { console.error('Unhandled:', err); });
+process.on('uncaughtException', (err) => {
+    console.error('CRITICAL: Uncaught:', err);
+    // Don't exit immediately, let the heartbeat show what's happening
+    setTimeout(() => process.exit(1), 5000);
+});
+
+process.on('unhandledRejection', (err) => { console.error('CRITICAL: Unhandled:', err); });
+process.on('SIGTERM', () => {
+    console.log('[SHUTDOWN] Received SIGTERM. Railway is stopping the container.');
+    process.exit(0);
+});
