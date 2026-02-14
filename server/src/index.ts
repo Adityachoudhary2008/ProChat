@@ -24,16 +24,23 @@ const app = express();
 app.set('trust proxy', 1);
 
 const PORT = Number(process.env.PORT) || 8080;
-const VERSION = "1.0.12-ULTRA";
+const VERSION = "1.0.14-FINAL-HARDENED";
 
-// --- 1. CRITICAL HEALTH CHECKS ---
+// --- 1. REQUEST LOGGER (FOR DEBUGGING RAILWAY PROBES) ---
+app.use((req, res, next) => {
+    console.log(`[REQUEST] ${new Date().toISOString()} | ${req.method} ${req.url} | IP: ${req.ip} | Host: ${req.headers.host}`);
+    next();
+});
+
+// --- 2. CRITICAL HEALTH CHECKS ---
 app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok', version: VERSION, db: mongoose.connection.readyState }));
 app.get('/health', (req, res) => res.status(200).send('HEALTHY'));
-app.get('/', (req, res) => res.status(200).send('ProChat Stable'));
+app.get('/ping', (req, res) => res.status(200).send('pong'));
+app.get('/', (req, res) => res.status(200).send(`ProChat Stable - Version ${VERSION}`));
 
-// --- 2. MIDDLEWARE ---
+// --- 3. MIDDLEWARE ---
 app.use(cors({
-    origin: (origin, callback) => callback(null, true),
+    origin: (origin, callback) => callback(null, true), // Reflections origin for maximum compatibility
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'token'],
@@ -42,25 +49,22 @@ app.use(cors({
 
 app.use(express.json());
 app.use(helmet({ crossOriginResourcePolicy: false, contentSecurityPolicy: false }));
-app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
-// --- 3. ROUTES ---
+// --- 4. ROUTES ---
 app.use('/api/user', userRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/message', messageRoutes);
 app.use('/api/meeting', meetingRoutes);
 app.use('/api/upload', uploadRoutes);
 
-// --- 4. STATIC FILES AND UPLOADS ---
+// --- 5. STATIC FILES ---
 const serverDir = path.resolve(__dirname, '..');
 const rootDir = path.resolve(serverDir, '..');
-
 const uploadsPath = path.join(serverDir, 'uploads');
 app.use('/uploads', express.static(uploadsPath));
 
 if (process.env.NODE_ENV === 'production') {
     const clientPath = path.join(rootDir, 'client', 'dist');
-    console.log(`[STARTUP] Serving static from: ${clientPath}`);
     app.use(express.static(clientPath));
     app.get('*', (req, res, next) => {
         if (req.path.startsWith('/api')) return next();
@@ -70,11 +74,11 @@ if (process.env.NODE_ENV === 'production') {
     });
 }
 
-// --- 5. ERROR HANDLERS ---
+// --- 6. ERROR HANDLERS ---
 app.use(notFound);
 app.use(errorHandler);
 
-// --- 6. SERVER AND DATABASE ---
+// --- 7. SERVER AND DATABASE ---
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", credentials: true } });
 
@@ -86,25 +90,26 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/prochat')
     .then(() => console.log('[STARTUP] MongoDB Success'))
     .catch(err => console.error('[STARTUP] MongoDB Fail:', err));
 
+// Start listening - Using a simpler listen approach
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`[SUCCESS] VERSION ${VERSION} listening on 0.0.0.0:${PORT}`);
 });
 
-// Heartbeat
+// Heartbeat remains for visibility
 setInterval(() => {
-    console.log(`[ALIVE] ${new Date().toISOString()} | Port: ${PORT} | DB: ${mongoose.connection.readyState}`);
+    console.log(`[HEARTBEAT] ${new Date().toISOString()} | Stable: True | DB: ${mongoose.connection.readyState}`);
 }, 10000);
 
 process.on('SIGTERM', () => {
-    console.log('[SHUTDOWN] Railway SIGTERM');
+    console.log('[SHUTDOWN] Railway SIGTERM received');
     process.exit(0);
 });
 
 process.on('uncaughtException', (err: any) => {
     console.error('CRITICAL UNCAUGHT:', err);
-    setTimeout(() => process.exit(1), 5000);
+    setTimeout(() => process.exit(1), 2000);
 });
 
-process.on('unhandledRejection', (reason: any, promise: any) => {
-    console.error('REJECTION at:', promise, 'reason:', reason);
+process.on('unhandledRejection', (reason: any) => {
+    console.error('REJECTION:', reason);
 });
