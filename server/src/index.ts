@@ -21,23 +21,25 @@ dotenv.config();
 const app = express();
 app.set('trust proxy', 1);
 
-// --- BULLETPROOF CORS CONFIGURATION (TOP OF STACK) ---
+// --- BULLETPROOF CORS ---
 const allowedOrigins = [
     'https://adomeet.netlify.app',
     'http://localhost:5173',
     'http://localhost:3000'
 ];
 
-console.log(`[STARTUP] CWD: ${process.cwd()}`);
-console.log('[STARTUP] Initializing middleware stack...');
+console.log(`[STARTUP] VERSION: 1.0.10 | CWD: ${process.cwd()} | ENV: ${process.env.NODE_ENV}`);
 
-// 1. Using the official cors middleware
+// 1. Core Health Check (TOP OF STACK)
+app.get('/health', (req, res) => res.status(200).json({ status: 'ok', heartbeat: new Date().toISOString() }));
+app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok', dbStatus: mongoose.connection.readyState }));
+app.get('/', (req, res) => res.status(200).send('API Stable'));
+
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
-            console.log(`[CORS DEBUG] Origin restricted but allowed for debug: ${origin}`);
             callback(null, true);
         }
     },
@@ -47,102 +49,21 @@ app.use(cors({
     optionsSuccessStatus: 200
 }));
 
-// 2. Manual header fallback
-app.use((req: Request, res: Response, next: NextFunction) => {
+app.use((req, res, next) => {
     const origin = req.headers.origin;
-    if (origin && allowedOrigins.includes(origin)) {
-        res.header('Access-Control-Allow-Origin', origin);
-    } else {
-        res.header('Access-Control-Allow-Origin', 'https://adomeet.netlify.app');
-    }
+    res.header('Access-Control-Allow-Origin', (origin && allowedOrigins.includes(origin)) ? origin : 'https://adomeet.netlify.app');
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, token');
-
-    if (req.method === 'OPTIONS') {
-        return res.status(200).send();
-    }
+    if (req.method === 'OPTIONS') return res.status(200).send();
     next();
 });
-// -----------------------------------------------------
 
-const server = http.createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: allowedOrigins,
-        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        credentials: true
-    }
-});
-
-// Error Handling Listeners
-process.on('uncaughtException', (err) => {
-    console.error('[CRITICAL] Uncaught Exception:', err);
-    logger.error('Uncaught Exception:', err);
-    process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
-    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-console.log('[STARTUP] Configuring standard middleware...');
 app.use(express.json());
-app.use(helmet({
-    crossOriginResourcePolicy: false,
-    contentSecurityPolicy: false,
-}));
+app.use(helmet({ crossOriginResourcePolicy: false, contentSecurityPolicy: false }));
 app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
-// Health Check with Enhanced Diagnostics (VITAL: Keep at top for Railway/Health checks)
-app.get('/api/health', (req: Request, res: Response) => {
-    console.log('[HEALTH CHECK] Pinged');
-    res.json({
-        status: 'ok',
-        dbStatus: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-        dbReadyState: mongoose.connection.readyState,
-        environment: process.env.NODE_ENV,
-        timestamp: new Date().toISOString(),
-        requestHeaders: req.headers,
-        corsOrigins: allowedOrigins,
-        port: process.env.PORT,
-        cwd: process.cwd()
-    });
-});
-
-app.get('/health', (req: Request, res: Response) => {
-    res.json({ status: 'ok', startup: true });
-});
-
-app.get('/', (req: Request, res: Response) => {
-    res.status(200).send('OK');
-});
-
-// Database Connection
-console.log('[STARTUP] Connecting to MongoDB...');
-const MONGODB_URI = process.env.MONGODB_URI;
-
-if (!MONGODB_URI) {
-    console.error('!! [CRITICAL ERROR] MONGODB_URI is MISSING in environment !!');
-} else {
-    const maskedUri = MONGODB_URI.replace(/:([^@]+)@/, ':****@');
-    console.log(`[STARTUP] Using MONGODB_URI: ${maskedUri.split('@')[1] || 'URL Hidden'}`);
-}
-
-const connectionString = MONGODB_URI || 'mongodb://localhost:27017/prochat';
-mongoose.connect(connectionString)
-    .then(() => {
-        console.log('[STARTUP] Connected to MongoDB');
-        logger.info('Connected to MongoDB');
-    })
-    .catch((err) => {
-        console.error('[STARTUP] MongoDB connection error:', err);
-        logger.error('MongoDB connection error:', err);
-    });
-
 // Routes
-console.log('[STARTUP] Registering routes...');
 app.use('/api/user', userRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/message', messageRoutes);
@@ -150,78 +71,54 @@ app.use('/api/meeting', meetingRoutes);
 app.use('/api/upload', uploadRoutes);
 
 const __root = process.cwd();
-app.use('/uploads', express.static(path.join(__root, 'uploads')));
+const uploadsPath = path.join(__root, 'uploads');
+app.use('/uploads', express.static(uploadsPath));
 
-// Serve Frontend in Production
+// Static files (Production)
 if (process.env.NODE_ENV === 'production') {
-    // Determine static path relative to CWD
-    const clientPath = path.join(__root, 'client', 'dist');
-    const clientPathFallback = path.join(__root, '..', 'client', 'dist');
-
-    console.log(`[STARTUP] Serving static files from: ${clientPath}`);
+    const clientPath = path.join(__root, '..', 'client', 'dist'); // Standard workspace layout
+    console.log(`[STARTUP] Static Path: ${clientPath}`);
     app.use(express.static(clientPath));
-    app.use(express.static(clientPathFallback));
-
-    app.get('*', (req: Request, res: Response) => {
-        const indexPath = path.join(clientPath, 'index.html');
-        const indexPathFallback = path.join(clientPathFallback, 'index.html');
-
-        res.sendFile(indexPath, (err) => {
-            if (err) {
-                res.sendFile(indexPathFallback, (err2) => {
-                    if (err2) {
-                        res.status(404).send('Static files not found');
-                    }
-                });
-            }
+    app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api')) {
+            next();
+            return;
+        }
+        res.sendFile(path.join(clientPath, 'index.html'), (err) => {
+            if (err) res.status(404).send('Not Found');
         });
     });
 }
 
-// Socket.IO Logic
-io.on('connection', (socket: Socket) => {
-    logger.info('Connected to socket.io');
-    socket.on('setup', (userData: any) => {
-        socket.join(userData._id);
-        socket.emit('connected');
-    });
-    socket.on('join chat', (room: string) => {
-        socket.join(room);
-        logger.info(`User Joined Room: ${room}`);
-    });
-    socket.on('typing', (room: string) => socket.in(room).emit('typing'));
-    socket.on('stop typing', (room: string) => socket.in(room).emit('stop typing'));
-    socket.on('new message', (newMessageRecieved: any) => {
-        var chat = newMessageRecieved.chat;
-        if (!chat.users) return logger.error('chat.users not defined');
-        chat.users.forEach((user: any) => {
-            if (user._id == newMessageRecieved.sender._id) return;
-            socket.in(user._id).emit('message received', newMessageRecieved);
-        });
-    });
-    socket.on('join meeting', (meetingId: string) => {
-        socket.join(meetingId);
-        logger.info(`User joined meeting ${meetingId}`);
-        socket.to(meetingId).emit('user-joined', socket.id);
-    });
-    socket.on('call-user', ({ userToCall, signalData, from, name }: any) => {
-        io.to(userToCall).emit("call-user", { signal: signalData, from, name });
-    });
-    socket.on("answer-call", (data: any) => {
-        io.to(data.to).emit("call-accepted", data.signal);
-    });
-    socket.off('setup', () => {
-        logger.info('USER DISCONNECTED');
-    });
-});
-
+// Error handlers
 app.use(notFound);
 app.use(errorHandler);
 
-// VITAL: Railway standard port is 8080 if not specified.
-const PORT = Number(process.env.PORT) || 8080;
-console.log(`[STARTUP] Attempting to listen on port ${PORT}...`);
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[SUCCESS] Server running on port ${PORT}`);
-    logger.info(`Server running on port ${PORT}`);
+// Server Init
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: { origin: allowedOrigins, credentials: true }
 });
+
+// Socket.io logic
+io.on('connection', (socket) => {
+    socket.on('setup', (userData) => { socket.join(userData._id); socket.emit('connected'); });
+});
+
+// Database
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/prochat')
+    .then(() => console.log('[STARTUP] MongoDB Connected'))
+    .catch(err => console.error('[STARTUP] MongoDB Error:', err));
+
+// Start
+const rawPort = process.env.PORT || '8080';
+const PORT = parseInt(rawPort, 10);
+console.log(`[STARTUP] Port: ${PORT} (from ${rawPort})`);
+
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`[SUCCESS] Listening on 0.0.0.0:${PORT}`);
+    logger.info(`Server Ready on port ${PORT}`);
+});
+
+process.on('uncaughtException', (err) => { console.error('Uncaught:', err); process.exit(1); });
+process.on('unhandledRejection', (err) => { console.error('Unhandled:', err); });

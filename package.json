@@ -8,7 +8,7 @@
     ],
     "scripts": {
         "build": "npm run build -w client && npm run build -w prochat-server",
-        "start": "npm start -w prochat-server",
+        "start": "node server/dist/index.js",
         "dev": "concurrently \"npm run dev -w prochat-server\" \"npm run dev -w client\""
     },
     "devDependencies": {
