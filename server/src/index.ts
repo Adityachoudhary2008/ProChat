@@ -95,7 +95,7 @@ app.use(helmet({
 }));
 app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
-// Health Check with Enhanced Diagnostics
+// Health Check with Enhanced Diagnostics (VITAL: Keep at top for Railway/Health checks)
 app.get('/api/health', (req: Request, res: Response) => {
     console.log('[HEALTH CHECK] Pinged');
     res.json({
@@ -113,6 +113,10 @@ app.get('/api/health', (req: Request, res: Response) => {
 
 app.get('/health', (req: Request, res: Response) => {
     res.json({ status: 'ok', startup: true });
+});
+
+app.get('/', (req: Request, res: Response) => {
+    res.status(200).send('OK');
 });
 
 // Database Connection
@@ -172,10 +176,6 @@ if (process.env.NODE_ENV === 'production') {
             }
         });
     });
-} else {
-    app.get('/', (req: Request, res: Response) => {
-        res.send('API is running...');
-    });
 }
 
 // Socket.IO Logic
@@ -219,9 +219,9 @@ app.use(notFound);
 app.use(errorHandler);
 
 // VITAL: Railway standard port is 8080 if not specified.
-const PORT = process.env.PORT || 8080;
+const PORT = Number(process.env.PORT) || 8080;
 console.log(`[STARTUP] Attempting to listen on port ${PORT}...`);
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
     console.log(`[SUCCESS] Server running on port ${PORT}`);
     logger.info(`Server running on port ${PORT}`);
 });
