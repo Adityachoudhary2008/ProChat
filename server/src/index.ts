@@ -18,29 +18,21 @@ import messageRoutes from './routes/messageRoutes';
 import meetingRoutes from './routes/meetingRoutes';
 import uploadRoutes from './routes/uploadRoutes';
 
-// --- INITIAL CONFIG ---
+// --- CONFIGURATION ---
 dotenv.config();
 const app = express();
 app.set('trust proxy', 1);
 
 const PORT = Number(process.env.PORT) || 8080;
-const VERSION = "1.0.14-FINAL-HARDENED";
 
-// --- 1. REQUEST LOGGER (FOR DEBUGGING RAILWAY PROBES) ---
-app.use((req, res, next) => {
-    console.log(`[REQUEST] ${new Date().toISOString()} | ${req.method} ${req.url} | IP: ${req.ip} | Host: ${req.headers.host}`);
-    next();
-});
-
-// --- 2. CRITICAL HEALTH CHECKS ---
-app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok', version: VERSION, db: mongoose.connection.readyState }));
+// --- 1. HEALTH CHECKS ---
+app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok', db: mongoose.connection.readyState }));
 app.get('/health', (req, res) => res.status(200).send('HEALTHY'));
-app.get('/ping', (req, res) => res.status(200).send('pong'));
-app.get('/', (req, res) => res.status(200).send(`ProChat Stable - Version ${VERSION}`));
+app.get('/', (req, res) => res.status(200).send('ProChat Backend Operational'));
 
-// --- 3. MIDDLEWARE ---
+// --- 2. MIDDLEWARE ---
 app.use(cors({
-    origin: (origin, callback) => callback(null, true), // Reflections origin for maximum compatibility
+    origin: (origin, callback) => callback(null, true),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'token'],
@@ -49,17 +41,19 @@ app.use(cors({
 
 app.use(express.json());
 app.use(helmet({ crossOriginResourcePolicy: false, contentSecurityPolicy: false }));
+app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
-// --- 4. ROUTES ---
+// --- 3. ROUTES ---
 app.use('/api/user', userRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/message', messageRoutes);
 app.use('/api/meeting', meetingRoutes);
 app.use('/api/upload', uploadRoutes);
 
-// --- 5. STATIC FILES ---
+// --- 4. STATIC FILES AND UPLOADS ---
 const serverDir = path.resolve(__dirname, '..');
 const rootDir = path.resolve(serverDir, '..');
+
 const uploadsPath = path.join(serverDir, 'uploads');
 app.use('/uploads', express.static(uploadsPath));
 
@@ -74,42 +68,65 @@ if (process.env.NODE_ENV === 'production') {
     });
 }
 
-// --- 6. ERROR HANDLERS ---
+// --- 5. ERROR HANDLERS ---
 app.use(notFound);
 app.use(errorHandler);
 
-// --- 7. SERVER AND DATABASE ---
+// --- 6. SERVER AND DATABASE ---
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", credentials: true } });
 
 io.on('connection', (socket) => {
     socket.on('setup', (userData: any) => { socket.join(userData._id); socket.emit('connected'); });
+    socket.on('join chat', (room: string) => {
+        socket.join(room);
+        logger.info(`User Joined Room: ${room}`);
+    });
+    socket.on('typing', (room: string) => socket.in(room).emit('typing'));
+    socket.on('stop typing', (room: string) => socket.in(room).emit('stop typing'));
+    socket.on('new message', (newMessageRecieved: any) => {
+        var chat = newMessageRecieved.chat;
+        if (!chat.users) return logger.error('chat.users not defined');
+        chat.users.forEach((user: any) => {
+            if (user._id == newMessageRecieved.sender._id) return;
+            socket.in(user._id).emit('message received', newMessageRecieved);
+        });
+    });
+    socket.on('join meeting', (meetingId: string) => {
+        socket.join(meetingId);
+        logger.info(`User joined meeting ${meetingId}`);
+        socket.to(meetingId).emit('user-joined', socket.id);
+    });
+    socket.on('call-user', ({ userToCall, signalData, from, name }: any) => {
+        io.to(userToCall).emit("call-user", { signal: signalData, from, name });
+    });
+    socket.on("answer-call", (data: any) => {
+        io.to(data.to).emit("call-accepted", data.signal);
+    });
+    socket.off('setup', () => {
+        logger.info('USER DISCONNECTED');
+    });
 });
 
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/prochat')
-    .then(() => console.log('[STARTUP] MongoDB Success'))
-    .catch(err => console.error('[STARTUP] MongoDB Fail:', err));
+    .then(() => console.log('[STARTUP] MongoDB Connected'))
+    .catch(err => console.error('[STARTUP] MongoDB Connection Error:', err));
 
-// Start listening - Using a simpler listen approach
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[SUCCESS] VERSION ${VERSION} listening on 0.0.0.0:${PORT}`);
+    console.log(`[SUCCESS] Server listening on 0.0.0.0:${PORT}`);
+    logger.info(`Server listening on port ${PORT}`);
 });
 
-// Heartbeat remains for visibility
-setInterval(() => {
-    console.log(`[HEARTBEAT] ${new Date().toISOString()} | Stable: True | DB: ${mongoose.connection.readyState}`);
-}, 10000);
-
 process.on('SIGTERM', () => {
-    console.log('[SHUTDOWN] Railway SIGTERM received');
+    logger.info('SIGTERM received. Shutting down.');
     process.exit(0);
 });
 
 process.on('uncaughtException', (err: any) => {
-    console.error('CRITICAL UNCAUGHT:', err);
-    setTimeout(() => process.exit(1), 2000);
+    logger.error('CRITICAL UNCAUGHT EXCEPTION:', err);
+    setTimeout(() => process.exit(1), 1000);
 });
 
 process.on('unhandledRejection', (reason: any) => {
-    console.error('REJECTION:', reason);
+    logger.error('UNHANDLED REJECTION:', reason);
 });
