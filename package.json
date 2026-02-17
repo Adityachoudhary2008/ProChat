@@ -7,7 +7,7 @@
         "server"
     ],
     "scripts": {
-        "build": "npm install @rollup/rollup-linux-x64-gnu lightningcss-linux-x64-gnu --no-save 2>/dev/null || true && npm run build -w client && npm run build -w prochat-server",
+        "build": "npm install @rollup/rollup-linux-x64-gnu lightningcss-linux-x64-gnu @esbuild/linux-x64 --no-save 2>/dev/null || true && npm run build -w client && npm run build -w prochat-server",
         "start": "node server/dist/index.js",
         "dev": "concurrently \"npm run dev -w prochat-server\" \"npm run dev -w client\""
     },
