@@ -16,7 +16,6 @@ const MeetingPage: React.FC = () => {
     const [voiceMuted, setVoiceMuted] = useState(false);
     const [videoMuted, setVideoMuted] = useState(false);
     const [callEnded, setCallEnded] = useState(false);
-    const [peersInRoom, setPeersInRoom] = useState<string[]>([]);
 
     const myVideo = useRef<HTMLVideoElement>(null);
     const userVideo = useRef<HTMLVideoElement>(null);
