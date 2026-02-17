@@ -1,13 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import SimplePeer from 'simple-peer'; // You might need `vite-plugin-node-polyfills` for simple-peer buffer
+import SimplePeer from 'simple-peer';
 import { io, Socket } from 'socket.io-client';
 import { useAppSelector } from '../app/hooks';
-
-// We need to polyfill 'global' and 'process' or use a different library if Vite issues arise.
-// Often `simple-peer` requires `global` and `Buffer`.
-// Let's assume standard Vite config or we might need to patch it. 
-// For now, I'll write the logic.
 
 const ENDPOINT = import.meta.env.VITE_SOCKET_URL || 'https://prochat-production.up.railway.app';
 
@@ -17,16 +12,11 @@ const MeetingPage: React.FC = () => {
     const navigate = useNavigate();
 
     const [stream, setStream] = useState<MediaStream>();
-    const [me, setMe] = useState('');
     const [callAccepted, setCallAccepted] = useState(false);
     const [voiceMuted, setVoiceMuted] = useState(false);
     const [videoMuted, setVideoMuted] = useState(false);
-
-    // For 1-on-1 simplicity initially
-    const [caller, setCaller] = useState('');
-    const [callerSignal, setCallerSignal] = useState<any>();
-    const [receivingCall, setReceivingCall] = useState(false);
     const [callEnded, setCallEnded] = useState(false);
+    const [peersInRoom, setPeersInRoom] = useState<string[]>([]);
 
     const myVideo = useRef<HTMLVideoElement>(null);
     const userVideo = useRef<HTMLVideoElement>(null);
@@ -34,109 +24,159 @@ const MeetingPage: React.FC = () => {
     const socket = useRef<Socket | null>(null);
 
     useEffect(() => {
-        socket.current = io(ENDPOINT);
+        const initializeCall = async () => {
+            socket.current = io(ENDPOINT);
 
-        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-            .then((currentStream) => {
+            // Get user media first
+            try {
+                const currentStream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: true
+                });
                 setStream(currentStream);
                 if (myVideo.current) {
                     myVideo.current.srcObject = currentStream;
                 }
-            });
 
-        socket.current.on('me', (id) => setMe(id));
+                // Join meeting room
+                socket.current.emit("join meeting", meetingId);
 
-        socket.current.emit("join meeting", meetingId);
+                // Listen for other users in room
+                socket.current.on('user-joined', (socketId: string) => {
+                    console.log('[MEETING] User joined:', socketId);
+                    if (!connectionRef.current) {
+                        initiateCall(socketId, currentStream);
+                    }
+                });
 
-        // Listening for signals
-        socket.current.on("call-user", (data) => {
-            setReceivingCall(true);
-            setCaller(data.from);
-            setCallerSignal(data.signal);
-        });
+                // Listen for incoming calls
+                socket.current.on("call-user", (data: any) => {
+                    console.log('[MEETING] Receiving call from:', data.from);
+                    answerCall(data, currentStream);
+                });
 
-        socket.current.on('user-joined', (userId) => {
-            console.log('User joined, calling...', userId);
-            callUser(userId);
-        });
+                // Listen for call acceptance
+                socket.current.on("call-accepted-signal", (signal: any) => {
+                    console.log('[MEETING] Call accepted, signaling peer');
+                    setCallAccepted(true);
+                    connectionRef.current?.signal(signal);
+                });
 
-        // This logic is a bit 1-on-1 specific. 
-        // For a meeting room with ID, we often want a "mesh" or at least auto-join.
-        // Let's implement a simple "Join and see who's there" or just wait for calls.
+            } catch (error) {
+                console.error('[MEETING] Media access error:', error);
+                alert('Please allow camera and microphone access');
+            }
 
+            return () => {
+                socket.current?.disconnect();
+                stream?.getTracks().forEach(track => track.stop());
+            };
+        };
+
+        initializeCall();
     }, [meetingId]);
 
-    const answerCall = () => {
-        setCallAccepted(true);
-        const peer = new SimplePeer({
-            initiator: false,
-            trickle: false,
-            stream: stream,
-        });
-
-        peer.on("signal", (data) => {
-            socket.current?.emit("answer-call", { signal: data, to: caller });
-        });
-
-        peer.on("stream", (currentStream) => {
-            if (userVideo.current) {
-                userVideo.current.srcObject = currentStream;
-            }
-        });
-
-        peer.signal(callerSignal);
-        connectionRef.current = peer;
-    };
-
-    const callUser = (id: string) => {
+    const initiateCall = (targetSocketId: string, mediaStream: MediaStream) => {
         const peer = new SimplePeer({
             initiator: true,
             trickle: false,
-            stream: stream,
+            stream: mediaStream,
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                ]
+            }
         });
 
         peer.on("signal", (data) => {
+            console.log('[MEETING] Sending signal to:', targetSocketId);
             socket.current?.emit("call-user", {
-                userToCall: id,
+                userToCall: targetSocketId,
                 signalData: data,
-                from: me,
+                from: socket.current.id,
                 name: user?.name
             });
         });
 
-        peer.on("stream", (currentStream) => {
+        peer.on("stream", (remoteStream) => {
+            console.log('[MEETING] Received remote stream');
             if (userVideo.current) {
-                userVideo.current.srcObject = currentStream;
+                userVideo.current.srcObject = remoteStream;
+            }
+            setCallAccepted(true);
+        });
+
+        peer.on("error", (err) => {
+            console.error('[MEETING] Peer error:', err);
+        });
+
+        connectionRef.current = peer;
+    };
+
+    const answerCall = (callData: any, mediaStream: MediaStream) => {
+        setCallAccepted(true);
+        const peer = new SimplePeer({
+            initiator: false,
+            trickle: false,
+            stream: mediaStream,
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                ]
             }
         });
 
-        socket.current?.on("call-accepted-signal", (signal) => {
-            setCallAccepted(true);
-            peer.signal(signal);
+        peer.on("signal", (data) => {
+            console.log('[MEETING] Answering call');
+            socket.current?.emit("answer-call", {
+                signal: data,
+                to: callData.from
+            });
         });
 
+        peer.on("stream", (remoteStream) => {
+            console.log('[MEETING] Received remote stream (answer)');
+            if (userVideo.current) {
+                userVideo.current.srcObject = remoteStream;
+            }
+        });
+
+        peer.on("error", (err) => {
+            console.error('[MEETING] Peer error (answer):', err);
+        });
+
+        peer.signal(callData.signal);
         connectionRef.current = peer;
     };
 
     const leaveCall = () => {
         setCallEnded(true);
         connectionRef.current?.destroy();
+        stream?.getTracks().forEach(track => track.stop());
         navigate('/chats');
     };
 
     const toggleMute = () => {
         if (stream) {
-            stream.getAudioTracks()[0].enabled = !stream.getAudioTracks()[0].enabled;
-            setVoiceMuted(!voiceMuted);
+            const audioTrack = stream.getAudioTracks()[0];
+            if (audioTrack) {
+                audioTrack.enabled = !audioTrack.enabled;
+                setVoiceMuted(!audioTrack.enabled);
+            }
         }
-    }
+    };
 
     const toggleVideo = () => {
         if (stream) {
-            stream.getVideoTracks()[0].enabled = !stream.getVideoTracks()[0].enabled;
-            setVideoMuted(!videoMuted);
+            const videoTrack = stream.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.enabled = !videoTrack.enabled;
+                setVideoMuted(!videoTrack.enabled);
+            }
         }
-    }
+    };
 
     return (
         <div className="flex flex-col h-screen bg-slate-950 text-white relative overflow-hidden">
@@ -158,7 +198,6 @@ const MeetingPage: React.FC = () => {
             <div className="flex-1 flex items-center justify-center p-4 gap-4 flex-wrap content-center">
                 {/* My Video */}
                 <div className="relative w-full md:w-[48%] aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-slate-800 transition-all hover:border-slate-600 group">
-                    {/* Stream active indicator handled by browser usually, but we can add UI */}
                     <video playsInline ref={myVideo} autoPlay muted className="w-full h-full object-cover transform scale-x-[-1]" />
                     <div className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2">
                         <span>You</span>
@@ -175,41 +214,19 @@ const MeetingPage: React.FC = () => {
                         </div>
                     </div>
                 ) : (
-                    receivingCall || caller ? (
-                        <div className="w-full md:w-[48%] aspect-video bg-slate-900 rounded-2xl flex items-center justify-center border border-slate-800 border-dashed">
-                            <div className="text-center animate-pulse">
-                                <p className="text-2xl font-bold text-slate-500">Connecting...</p>
+                    <div className="w-full md:w-[48%] aspect-video bg-slate-900 rounded-2xl flex items-center justify-center border border-slate-800 border-dashed">
+                        <div className="text-center text-slate-500">
+                            <div className="w-16 h-16 mx-auto mb-4 bg-slate-800 rounded-full flex items-center justify-center animate-pulse">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="size-8">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                                </svg>
                             </div>
+                            <p>Waiting for others to join...</p>
+                            <p className="text-sm mt-2">Share meeting ID: <span className="font-mono bg-slate-800 px-2 py-1 rounded select-all">{meetingId}</span></p>
                         </div>
-                    ) : (
-                        <div className="w-full md:w-[48%] aspect-video bg-slate-900 rounded-2xl flex items-center justify-center border border-slate-800 border-dashed">
-                            <div className="text-center text-slate-500">
-                                <p>Waiting for others to join...</p>
-                                <p className="text-sm mt-2">Share meeting ID: <span className="font-mono bg-slate-800 px-1 rounded select-all">{meetingId}</span></p>
-                            </div>
-                        </div>
-                    )
+                    </div>
                 )}
             </div>
-
-            {/* Incoming Call Notification */}
-            {receivingCall && !callAccepted && (
-                <div className="absolute top-20 left-1/2 transform -translate-x-1/2 glass-dark p-6 rounded-2xl flex flex-col items-center gap-4 shadow-2xl z-50 border border-emerald-500/30 animate-fade-in">
-                    <div className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center mb-2 animate-bounce">
-                        <span className="text-2xl">&#128222;</span>
-                    </div>
-                    <div>
-                        <p className="text-slate-400 text-sm">Incoming call from</p>
-                        <p className="font-bold text-xl">{caller}</p>
-                    </div>
-                    <div className="flex gap-4 w-full">
-                        <button onClick={answerCall} className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-bold transition-colors">
-                            Accept
-                        </button>
-                        {/* <button className="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl font-bold transition-colors">Decline</button> */}
-                    </div>
-                </div>
-            )}
 
             {/* Controls Bar */}
             <div className="p-6 flex justify-center gap-6">
@@ -219,7 +236,6 @@ const MeetingPage: React.FC = () => {
                         className={`p-4 rounded-full transition-all transform hover:scale-110 ${voiceMuted ? 'bg-red-500 text-white shadow-red-500/50 shadow-lg' : 'bg-slate-700 text-white hover:bg-slate-600'}`}
                         title={voiceMuted ? "Unmute" : "Mute"}
                     >
-                        {/* Mic Icon */}
                         {voiceMuted ? (
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 9.75 19.5 12m0 0 2.25 2.25M19.5 12l2.25-2.25M19.5 12l-2.25 2.25m-10.5-6 4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
@@ -235,7 +251,6 @@ const MeetingPage: React.FC = () => {
                         className={`p-4 rounded-full transition-all transform hover:scale-110 ${videoMuted ? 'bg-red-500 text-white shadow-red-500/50 shadow-lg' : 'bg-slate-700 text-white hover:bg-slate-600'}`}
                         title={videoMuted ? "Start Video" : "Stop Video"}
                     >
-                        {/* Video Icon */}
                         {videoMuted ? (
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
@@ -249,20 +264,6 @@ const MeetingPage: React.FC = () => {
                     </button>
                 </div>
             </div>
-            {/* Manual Call Trigger - For debugging/demo purposes (Hidden in Production) */}
-            {/* <div className="mt-8 flex justify-center gap-2">
-                <input 
-                    placeholder="Enter Socket ID to call" 
-                    className="text-black p-2 rounded"
-                    onChange={(e) => setCaller(e.target.value)}
-                />
-                <button 
-                    onClick={() => callUser(caller)}
-                    className="bg-blue-600 px-4 py-2 rounded"
-                >
-                    Call User
-                </button>
-             </div> */}
         </div>
     );
 };
