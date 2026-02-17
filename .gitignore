@@ -11,3 +11,5 @@ server/server_log*.txt
 server/build_error.txt
 .vscode
 .idea
+client/package-lock.json
+server/package-lock.json
