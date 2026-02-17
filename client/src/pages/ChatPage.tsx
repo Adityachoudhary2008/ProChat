@@ -9,6 +9,13 @@ import toast from 'react-hot-toast';
 
 const ENDPOINT = import.meta.env.VITE_SOCKET_URL || 'https://prochat-production.up.railway.app';
 
+interface ChatUser {
+    _id: string;
+    name: string;
+    email: string;
+    profilePic?: string;
+}
+
 const ChatPage: React.FC = () => {
     const dispatch = useAppDispatch();
     const navigate = useNavigate();
@@ -18,7 +25,7 @@ const ChatPage: React.FC = () => {
     const socket = useRef<Socket | null>(null);
 
     const [search, setSearch] = useState('');
-    const [searchResult, setSearchResult] = useState([]);
+    const [searchResult, setSearchResult] = useState<any[]>([]);
     const [loadingChat, setLoadingChat] = useState(false);
     const [isSearchOpen, setIsSearchOpen] = useState(false);
     const [newMessage, setNewMessage] = useState('');
@@ -106,11 +113,11 @@ const ChatPage: React.FC = () => {
             socket.current.emit("typing", selectedChat?._id);
         }
 
-        let lastTypingTime = new Date().getTime();
-        var timerLength = 3000;
+        const lastTypingTime = new Date().getTime();
+        const timerLength = 3000;
         setTimeout(() => {
-            var timeNow = new Date().getTime();
-            var timeDiff = timeNow - lastTypingTime;
+            const timeNow = new Date().getTime();
+            const timeDiff = timeNow - lastTypingTime;
             if (timeDiff >= timerLength) {
                 socket.current?.emit("stop typing", selectedChat?._id);
                 setTyping(false);
@@ -171,7 +178,7 @@ const ChatPage: React.FC = () => {
             return;
         }
 
-        const targetUser = selectedChat.users.find((u: any) => u._id !== user?._id);
+        const targetUser = selectedChat.users.find((u: ChatUser) => u._id !== user?._id);
         if (!targetUser) return;
 
         try {
@@ -357,7 +364,7 @@ const ChatPage: React.FC = () => {
                         {loadingChat ? (
                             <div className="flex justify-center p-4 text-slate-400 animate-pulse">Searching...</div>
                         ) : (
-                            searchResult?.slice(0, 4).map((user: any) => (
+                            searchResult?.slice(0, 4).map((user: ChatUser) => (
                                 <div key={user._id} onClick={() => handleGroup(user)} className="p-3 hover:bg-slate-50 rounded-xl cursor-pointer flex items-center gap-3 border border-slate-100 transition-colors">
                                     <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600 text-xs text-uppercase">
                                         {user.name.charAt(0)}
@@ -411,7 +418,7 @@ const ChatPage: React.FC = () => {
                         {loadingChat ? (
                             <div className="flex justify-center p-8 text-slate-400 animate-pulse">Loading...</div>
                         ) : (
-                            searchResult?.map((user: any) => (
+                            searchResult?.map((user: ChatUser) => (
                                 <UserListItem
                                     key={user._id}
                                     user={user}
@@ -510,7 +517,7 @@ const ChatPage: React.FC = () => {
                                 <div className="flex justify-between items-start mb-1">
                                     <p className={`font-semibold ${selectedChat?._id === chat._id ? 'text-slate-900' : 'text-slate-700'}`}>
                                         {!chat.isGroupChat
-                                            ? chat.users.find((u: any) => u._id !== user?._id)?.name || 'User'
+                                            ? chat.users.find((u: ChatUser) => u._id !== user?._id)?.name || 'User'
                                             : chat.chatName}
                                     </p>
                                 </div>
@@ -544,7 +551,7 @@ const ChatPage: React.FC = () => {
                                 <div>
                                     <h3 className="text-lg font-bold text-slate-900 tracking-tight">
                                         {!selectedChat.isGroupChat
-                                            ? selectedChat.users.find((u: any) => u._id !== user?._id)?.name
+                                            ? selectedChat.users.find((u: ChatUser) => u._id !== user?._id)?.name
                                             : selectedChat.chatName}
                                     </h3>
                                     <div className="flex items-center gap-2">
@@ -604,7 +611,7 @@ const ChatPage: React.FC = () => {
                                             <span className="w-1 h-1 bg-slate-400 rounded-full animate-bounce [animation-delay:0.2s]"></span>
                                             <span className="w-1 h-1 bg-slate-400 rounded-full animate-bounce [animation-delay:0.4s]"></span>
                                         </span>
-                                        {selectedChat.isGroupChat ? 'Someone is typing...' : `${selectedChat.users.find((u: any) => u._id !== user?._id)?.name} is typing...`}
+                                        {selectedChat.isGroupChat ? 'Someone is typing...' : `${selectedChat.users.find((u: ChatUser) => u._id !== user?._id)?.name} is typing...`}
                                     </div>
                                 </div>
                             )}
