@@ -96,6 +96,75 @@ export const allUsers = asyncHandler(async (req: any, res: Response) => {
         }
         : {};
 
-    const users = await User.find(keyword).find({ _id: { $ne: req.user._id } });
+    const users = await User.findById(keyword).find({ _id: { $ne: req.user._id } });
     res.send(users);
+});
+
+// @desc    Update user profile
+// @route   PUT /api/user/profile
+// @access  Private
+export const updateProfile = asyncHandler(async (req: any, res: Response) => {
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+        res.status(404);
+        throw new Error('User not found');
+    }
+
+    // Update profile fields
+    if (req.body.profile) {
+        user.profile = {
+            ...user.profile,
+            ...req.body.profile
+        };
+    }
+
+    const updatedUser = await user.save();
+    res.json({
+        _id: updatedUser._id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        profile: updatedUser.profile
+    });
+});
+
+// @desc    Get user settings
+// @route   GET /api/user/settings
+// @access  Private
+export const getSettings = asyncHandler(async (req: any, res: Response) => {
+    const user = await User.findById(req.user._id).select('settings');
+
+    if (!user) {
+        res.status(404);
+        throw new Error('User not found');
+    }
+
+    res.json(user);
+});
+
+// @desc    Update user settings
+// @route   PUT /api/user/settings
+// @access  Private
+export const updateSettings = asyncHandler(async (req: any, res: Response) => {
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+        res.status(404);
+        throw new Error('User not found');
+    }
+
+    // Update settings
+    if (req.body.settings) {
+        user.settings = {
+            ...user.settings,
+            ...req.body.settings
+        };
+    }
+
+    const updatedUser = await user.save();
+    res.json({
+        _id: updatedUser._id,
+        settings: updatedUser.settings
+    });
 });

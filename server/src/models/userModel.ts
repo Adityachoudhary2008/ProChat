@@ -6,6 +6,7 @@ export interface IUser extends Document {
     email: string;
     password?: string;
     role: 'student' | 'teacher' | 'hr' | 'admin';
+    avatar?: string;
     profile: {
         bio?: string;
         skills: string[];
@@ -20,6 +21,22 @@ export interface IUser extends Document {
             link?: string;
         }[];
     };
+    settings?: {
+        privacy: {
+            showLastSeen: boolean;
+            showProfilePhoto: boolean;
+            showOnlineStatus: boolean;
+        };
+        notifications: {
+            messageNotifications: boolean;
+            callNotifications: boolean;
+            emailNotifications: boolean;
+        };
+        appearance: {
+            theme: 'light' | 'dark' | 'auto';
+            language: string;
+        };
+    };
     matchPassword: (enteredPassword: string) => Promise<boolean>;
 }
 
@@ -28,6 +45,7 @@ const userSchema = new Schema<IUser>({
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     role: { type: String, enum: ['student', 'teacher', 'hr', 'admin'], default: 'student' },
+    avatar: { type: String },
     profile: {
         bio: { type: String },
         skills: [{ type: String }],
@@ -41,6 +59,22 @@ const userSchema = new Schema<IUser>({
             description: String,
             link: String
         }]
+    },
+    settings: {
+        privacy: {
+            showLastSeen: { type: Boolean, default: true },
+            showProfilePhoto: { type: Boolean, default: true },
+            showOnlineStatus: { type: Boolean, default: true }
+        },
+        notifications: {
+            messageNotifications: { type: Boolean, default: true },
+            callNotifications: { type: Boolean, default: true },
+            emailNotifications: { type: Boolean, default: false }
+        },
+        appearance: {
+            theme: { type: String, enum: ['light', 'dark', 'auto'], default: 'light' },
+            language: { type: String, default: 'en' }
+        }
     }
 }, {
     timestamps: true
