@@ -14,9 +14,13 @@ import { notFound } from './middleware/notFound';
 
 import userRoutes from './routes/userRoutes';
 import chatRoutes from './routes/chatRoutes';
+import passport from 'passport';
+import session from 'express-session';
+import configurePassport from './config/passport';
 import messageRoutes from './routes/messageRoutes';
 import meetingRoutes from './routes/meetingRoutes';
 import uploadRoutes from './routes/uploadRoutes';
+import authRoutes from './routes/authRoutes';
 
 // --- CONFIGURATION ---
 dotenv.config();
@@ -43,8 +47,23 @@ app.use(express.json());
 app.use(helmet({ crossOriginResourcePolicy: false, contentSecurityPolicy: false }));
 app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
+// Session and Passport initialization
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'prochatSecretKey123',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+configurePassport();
+
 // --- 3. ROUTES ---
 app.use('/api/user', userRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/message', messageRoutes);
 app.use('/api/meeting', meetingRoutes);

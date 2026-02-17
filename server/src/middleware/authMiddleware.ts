@@ -2,11 +2,16 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import User, { IUser } from '../models/userModel';
 
-interface AuthRequest extends Request {
-    user?: IUser;
+declare global {
+    namespace Express {
+        interface User extends IUser { }
+        interface Request {
+            user?: IUser;
+        }
+    }
 }
 
-export const protect = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const protect = async (req: Request, res: Response, next: NextFunction) => {
     let token;
 
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
@@ -15,7 +20,7 @@ export const protect = async (req: AuthRequest, res: Response, next: NextFunctio
 
             const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { id: string };
 
-            req.user = await User.findById(decoded.id).select('-password') as IUser;
+            req.user = (await User.findById(decoded.id).select('-password')) as IUser;
 
             next();
         } catch (error) {
@@ -31,7 +36,7 @@ export const protect = async (req: AuthRequest, res: Response, next: NextFunctio
     }
 };
 
-export const admin = (req: AuthRequest, res: Response, next: NextFunction) => {
+export const admin = (req: Request, res: Response, next: NextFunction) => {
     if (req.user && req.user.role === 'admin') {
         next();
     } else {

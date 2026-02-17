@@ -1,5 +1,6 @@
 import mongoose, { Document, Schema } from 'mongoose';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 
 export interface IUser extends Document {
     name: string;
@@ -37,7 +38,15 @@ export interface IUser extends Document {
             language: string;
         };
     };
+    resetPasswordToken?: string;
+    resetPasswordExpire?: Date;
+    isVerified: boolean;
+    emailVerificationToken?: string;
+    googleId?: string;
+    githubId?: string;
     matchPassword: (enteredPassword: string) => Promise<boolean>;
+    getResetPasswordToken: () => string;
+    getEmailVerificationToken: () => string;
 }
 
 const userSchema = new Schema<IUser>({
@@ -75,7 +84,13 @@ const userSchema = new Schema<IUser>({
             theme: { type: String, enum: ['light', 'dark', 'auto'], default: 'light' },
             language: { type: String, default: 'en' }
         }
-    }
+    },
+    resetPasswordToken: String,
+    resetPasswordExpire: Date,
+    isVerified: { type: Boolean, default: false },
+    emailVerificationToken: String,
+    googleId: String,
+    githubId: String
 }, {
     timestamps: true
 });
@@ -83,6 +98,31 @@ const userSchema = new Schema<IUser>({
 userSchema.methods.matchPassword = async function (enteredPassword: string) {
     return await bcrypt.compare(enteredPassword, this.password);
 };
+
+userSchema.methods.getResetPasswordToken = function () {
+    const resetToken = crypto.randomBytes(20).toString('hex');
+
+    this.resetPasswordToken = crypto
+        .createHash('sha256')
+        .update(resetToken)
+        .digest('hex');
+
+    this.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    return resetToken;
+};
+
+userSchema.methods.getEmailVerificationToken = function () {
+    const verificationToken = crypto.randomBytes(20).toString('hex');
+
+    this.emailVerificationToken = crypto
+        .createHash('sha256')
+        .update(verificationToken)
+        .digest('hex');
+
+    return verificationToken;
+};
+
 
 userSchema.pre('save', async function (next) {
     if (!this.isModified('password')) {

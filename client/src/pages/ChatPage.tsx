@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
 import { fetchChats, setSelectedChat, accessChat, fetchMessages, sendMessage, addMessage, updateLatestMessage } from '../features/chat/chatSlice';
 import api from '../services/api';
@@ -10,6 +11,7 @@ const ENDPOINT = import.meta.env.VITE_SOCKET_URL || 'https://prochat-production.
 
 const ChatPage: React.FC = () => {
     const dispatch = useAppDispatch();
+    const navigate = useNavigate();
     const { user } = useAppSelector((state) => state.auth);
     const { chats, selectedChat, isLoading, messages } = useAppSelector((state) => state.chat);
 
