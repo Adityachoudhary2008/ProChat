@@ -9,7 +9,7 @@ import { useAppSelector } from '../app/hooks';
 // Let's assume standard Vite config or we might need to patch it. 
 // For now, I'll write the logic.
 
-const ENDPOINT = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5001';
+const ENDPOINT = import.meta.env.VITE_SOCKET_URL || 'https://prochat-production.up.railway.app';
 
 const MeetingPage: React.FC = () => {
     const { meetingId } = useParams();
@@ -110,7 +110,7 @@ const MeetingPage: React.FC = () => {
             }
         });
 
-        socket.current?.on("call-accepted", (signal) => {
+        socket.current?.on("call-accepted-signal", (signal) => {
             setCallAccepted(true);
             peer.signal(signal);
         });

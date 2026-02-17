@@ -76,14 +76,24 @@ app.use(errorHandler);
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", credentials: true } });
 
+const userToSocket = new Map<string, string>();
+
 io.on('connection', (socket) => {
-    socket.on('setup', (userData: any) => { socket.join(userData._id); socket.emit('connected'); });
+    socket.on('setup', (userData: any) => {
+        socket.join(userData._id);
+        userToSocket.set(userData._id, socket.id);
+        socket.emit('connected');
+        logger.info(`User mapped: ${userData._id} -> ${socket.id}`);
+    });
+
     socket.on('join chat', (room: string) => {
         socket.join(room);
         logger.info(`User Joined Room: ${room}`);
     });
-    socket.on('typing', (room: string) => socket.in(room).emit('typing'));
-    socket.on('stop typing', (room: string) => socket.in(room).emit('stop typing'));
+
+    socket.on('typing', (room: string) => socket.in(room).emit('typing', room));
+    socket.on('stop typing', (room: string) => socket.in(room).emit('stop typing', room));
+
     socket.on('new message', (newMessageRecieved: any) => {
         var chat = newMessageRecieved.chat;
         if (!chat.users) return logger.error('chat.users not defined');
@@ -92,19 +102,54 @@ io.on('connection', (socket) => {
             socket.in(user._id).emit('message received', newMessageRecieved);
         });
     });
+
+    // --- DIRECT CALLING (WHATSAPP STYLE) ---
+    socket.on('direct-call', ({ targetUserId, fromUser, meetingId }) => {
+        const targetSocketId = userToSocket.get(targetUserId);
+        if (targetSocketId) {
+            io.to(targetSocketId).emit('incoming-call', { fromUser, meetingId });
+            logger.info(`Call forwarded from ${fromUser.name} to ${targetUserId}`);
+        } else {
+            socket.emit('call-error', { message: 'User is offline' });
+        }
+    });
+
+    socket.on('accept-call', ({ toUserId, meetingId }) => {
+        const targetSocketId = userToSocket.get(toUserId);
+        if (targetSocketId) {
+            io.to(targetSocketId).emit('call-accepted', { meetingId });
+        }
+    });
+
+    socket.on('reject-call', ({ toUserId }) => {
+        const targetSocketId = userToSocket.get(toUserId);
+        if (targetSocketId) {
+            io.to(targetSocketId).emit('call-rejected');
+        }
+    });
+
     socket.on('join meeting', (meetingId: string) => {
         socket.join(meetingId);
         logger.info(`User joined meeting ${meetingId}`);
         socket.to(meetingId).emit('user-joined', socket.id);
     });
+
     socket.on('call-user', ({ userToCall, signalData, from, name }: any) => {
         io.to(userToCall).emit("call-user", { signal: signalData, from, name });
     });
+
     socket.on("answer-call", (data: any) => {
-        io.to(data.to).emit("call-accepted", data.signal);
+        io.to(data.to).emit("call-accepted-signal", data.signal);
     });
-    socket.off('setup', () => {
-        logger.info('USER DISCONNECTED');
+
+    socket.on('disconnect', () => {
+        // Find and remove from map
+        for (const [userId, socketId] of userToSocket.entries()) {
+            if (socketId === socket.id) {
+                userToSocket.delete(userId);
+                break;
+            }
+        }
     });
 });
 

@@ -24,6 +24,8 @@ const ChatPage: React.FC = () => {
 
     const [isTyping, setIsTyping] = useState(false);
     const [typing, setTyping] = useState(false);
+    const [incomingCall, setIncomingCall] = useState<any>(null);
+    const [isCalling, setIsCalling] = useState(false);
 
     useEffect(() => {
         if (user) {
@@ -35,6 +37,28 @@ const ChatPage: React.FC = () => {
             });
             socket.current.on('stop typing', (room: string) => {
                 if (selectedChat?._id === room) setIsTyping(false);
+            });
+
+            // Incoming call listeners
+            socket.current.on('incoming-call', (data: any) => {
+                setIncomingCall(data);
+                const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
+                audio.play().catch(() => { });
+            });
+
+            socket.current.on('call-accepted', ({ meetingId }: any) => {
+                setIsCalling(false);
+                window.open(`/meeting/${meetingId}`, '_blank');
+            });
+
+            socket.current.on('call-rejected', () => {
+                setIsCalling(false);
+                toast.error("Call declined");
+            });
+
+            socket.current.on('call-error', (data: any) => {
+                setIsCalling(false);
+                toast.error(data.message || "Call failed");
             });
 
             socket.current.on('message received', (newMessageReceived: any) => {
@@ -139,22 +163,44 @@ const ChatPage: React.FC = () => {
     };
 
     const handleStartMeeting = async () => {
-        if (!selectedChat) return;
+        if (!selectedChat || selectedChat.isGroupChat) {
+            toast.error("Direct calling is currently supported for 1-on-1 chats only");
+            return;
+        }
+
+        const targetUser = selectedChat.users.find((u: any) => u._id !== user?._id);
+        if (!targetUser) return;
+
         try {
+            setIsCalling(true);
             const { data } = await api.post('/meeting');
-            const meetingLink = `${window.location.origin}/meeting/${data.meetingId}`;
-
-            // Automatically send a message with the meeting link
-            const messageData = {
-                content: `Hey everyone, I've started a video meeting! Click here to join: ${meetingLink}`,
-                chatId: selectedChat._id
-            };
-            const msgData = await dispatch(sendMessage(messageData)).unwrap();
-            socket.current?.emit("new message", msgData);
-
-            window.open(`/meeting/${data.meetingId}`, '_blank');
+            socket.current?.emit("direct-call", {
+                targetUserId: targetUser._id,
+                fromUser: { _id: user?._id, name: user?.name },
+                meetingId: data.meetingId
+            });
+            toast.success("Calling...", { icon: '📞' });
         } catch (e) {
-            toast.error("Failed to create meeting");
+            toast.error("Failed to start call");
+            setIsCalling(false);
+        }
+    };
+
+    const acceptCall = () => {
+        if (incomingCall) {
+            socket.current?.emit('accept-call', {
+                toUserId: incomingCall.fromUser._id,
+                meetingId: incomingCall.meetingId
+            });
+            window.open(`/meeting/${incomingCall.meetingId}`, '_blank');
+            setIncomingCall(null);
+        }
+    };
+
+    const rejectCall = () => {
+        if (incomingCall) {
+            socket.current?.emit('reject-call', { toUserId: incomingCall.fromUser._id });
+            setIncomingCall(null);
         }
     };
 
@@ -207,6 +253,65 @@ const ChatPage: React.FC = () => {
 
     return (
         <div className="flex h-screen bg-slate-50 relative overflow-hidden">
+            {/* Incoming Call Modal */}
+            {incomingCall && (
+                <div className="absolute inset-0 bg-black/80 z-[100] flex justify-center items-center animate-fade-in">
+                    <div className="bg-gradient-to-br from-slate-900 to-slate-800 w-full max-w-sm p-8 rounded-3xl shadow-2xl border border-emerald-500/30">
+                        <div className="flex flex-col items-center gap-6">
+                            <div className="w-24 h-24 bg-emerald-500 rounded-full flex items-center justify-center animate-pulse shadow-lg shadow-emerald-500/50">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="size-12 text-white">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+                                </svg>
+                            </div>
+                            <div className="text-center">
+                                <p className="text-slate-400 text-sm mb-1">Incoming Video Call</p>
+                                <p className="font-bold text-2xl text-white">{incomingCall.fromUser.name}</p>
+                            </div>
+                            <div className="flex gap-4 w-full mt-4">
+                                <button
+                                    onClick={rejectCall}
+                                    className="flex-1 bg-red-600 hover:bg-red-700 text-white py-4 rounded-2xl font-bold transition-all shadow-lg hover:shadow-red-600/50 flex items-center justify-center gap-2"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="size-6">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                                    </svg>
+                                    Decline
+                                </button>
+                                <button
+                                    onClick={acceptCall}
+                                    className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-2xl font-bold transition-all shadow-lg hover:shadow-emerald-500/50 flex items-center justify-center gap-2"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="size-6">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" />
+                                    </svg>
+                                    Accept
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Calling Overlay */}
+            {isCalling && (
+                <div className="absolute inset-0 bg-black/80 z-[100] flex justify-center items-center animate-fade-in">
+                    <div className="bg-slate-900 p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-6">
+                        <div className="w-20 h-20 bg-slate-700 rounded-full flex items-center justify-center animate-pulse">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="size-10 text-white">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" />
+                            </svg>
+                        </div>
+                        <p className="text-white text-xl font-bold">Calling...</p>
+                        <button
+                            onClick={() => setIsCalling(false)}
+                            className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-xl transition-all"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Group Chat Modal */}
             <div className={`absolute inset-0 bg-black/50 z-50 flex justify-center items-center transition-opacity duration-300 ${isGroupOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
                 <div className="bg-white w-full max-w-md p-6 rounded-2xl shadow-2xl animate-fade-in relative">
