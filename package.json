@@ -11,6 +11,10 @@
         "start": "node server/dist/index.js",
         "dev": "concurrently \"npm run dev -w prochat-server\" \"npm run dev -w client\""
     },
+    "optionalDependencies": {
+        "@rollup/rollup-linux-x64-gnu": "^4.41.1",
+        "@rollup/rollup-linux-x64-musl": "^4.41.1"
+    },
     "devDependencies": {
         "concurrently": "^8.2.2",
         "typescript": "^5.0.0"
