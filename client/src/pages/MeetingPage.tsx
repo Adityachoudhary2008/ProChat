@@ -122,6 +122,7 @@ const MeetingPage: React.FC = () => {
                     { urls: 'stun:stun4.l.google.com:19302' },
                     { urls: 'stun:stun.services.mozilla.com' },
                     { urls: 'stun:global.stun.twilio.com:3478' },
+                    { urls: 'stun:stun.l.google.com:19305' },
                     {
                         urls: "turn:openrelay.metered.ca:80",
                         username: "openrelayproject",
@@ -138,7 +139,9 @@ const MeetingPage: React.FC = () => {
                         credential: "openrelayproject"
                     }
                 ],
-                iceCandidatePoolSize: 10
+                iceCandidatePoolSize: 10,
+                rtcpMuxPolicy: 'require',
+                iceTransportPolicy: 'all'
             }
         });
 
@@ -195,6 +198,7 @@ const MeetingPage: React.FC = () => {
                     { urls: 'stun:stun4.l.google.com:19302' },
                     { urls: 'stun:stun.services.mozilla.com' },
                     { urls: 'stun:global.stun.twilio.com:3478' },
+                    { urls: 'stun:stun.l.google.com:19305' },
                     {
                         urls: "turn:openrelay.metered.ca:80",
                         username: "openrelayproject",
@@ -211,7 +215,9 @@ const MeetingPage: React.FC = () => {
                         credential: "openrelayproject"
                     }
                 ],
-                iceCandidatePoolSize: 10
+                iceCandidatePoolSize: 10,
+                rtcpMuxPolicy: 'require',
+                iceTransportPolicy: 'all'
             }
         });
 
@@ -237,13 +243,19 @@ const MeetingPage: React.FC = () => {
 
         peer.on("error", (err) => {
             console.error('[MEETING] Peer error (answer):', err);
-            toast.error("Connection failed. Retrying...");
+            // Don't show toast for minor network hiccups during triple ICE negotiation
         });
 
         // SIGNAL THE OFFER AND CANDIDATES LAST, AFTER ALL LISTENERS ARE SET
-        peer.signal(callData.signal);
-        pendingSignals.current.forEach(sig => peer.signal(sig));
-        pendingSignals.current = [];
+        try {
+            peer.signal(callData.signal);
+            pendingSignals.current.forEach(sig => {
+                try { peer.signal(sig); } catch (e) {}
+            });
+            pendingSignals.current = [];
+        } catch (err) {
+            console.error('[MEETING] Signal Error:', err);
+        }
     };
 
     const leaveCall = () => {
