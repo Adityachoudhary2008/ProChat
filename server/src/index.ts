@@ -56,9 +56,10 @@ app.use(session({
         secure: process.env.NODE_ENV === 'production',
         maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
-}) as unknown as express.RequestHandler);
-app.use(passport.initialize() as unknown as express.RequestHandler);
-app.use(passport.session() as unknown as express.RequestHandler);
+}) as any);
+// @ts-expect-error: Passport middleware types mismatch in strict mode
+app.use(passport.initialize());
+app.use(passport.session());
 configurePassport();
 
 // --- 3. ROUTES ---

@@ -1,0 +1,11 @@
+Debugger listening on ws://127.0.0.1:63059/e04c7ba1-7a32-4a34-8f6c-23387e7298a4
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+
+> prochat-app@1.0.0 build
+> npm install @rollup/rollup-linux-x64-gnu lightningcss-linux-x64-gnu @esbuild/linux-x64 @tailwindcss/oxide-linux-x64-gnu --no-save --workspace=client 2>/dev/null || true && npm run build -w client && npm run build -w prochat-server
+
+The system cannot find the path specified.
+'true' is not recognized as an internal or external command,
+operable program or batch file.
+Waiting for the debugger to disconnect...

@@ -1,0 +1,9 @@
+Debugger listening on ws://127.0.0.1:51452/de8222fa-334a-4dd9-950d-7b0691427d26
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Debugger listening on ws://127.0.0.1:59241/77a2d87d-8a53-4584-a0cf-f68b9e93f8e8
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+src/index.ts(62,1): error TS2578: Unused '@ts-expect-error' directive.
+Waiting for the debugger to disconnect...
+Waiting for the debugger to disconnect...
