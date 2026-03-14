@@ -16,6 +16,7 @@ const MeetingPage: React.FC = () => {
     const [voiceMuted, setVoiceMuted] = useState(false);
     const [videoMuted, setVideoMuted] = useState(false);
     const [callEnded, setCallEnded] = useState(false);
+    const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
 
     const myVideo = useRef<HTMLVideoElement>(null);
     const userVideo = useRef<HTMLVideoElement>(null);
@@ -29,7 +30,7 @@ const MeetingPage: React.FC = () => {
             // Get user media first
             try {
                 const currentStream = await navigator.mediaDevices.getUserMedia({
-                    video: true,
+                    video: { facingMode: 'user' },
                     audio: true
                 });
                 setStream(currentStream);
@@ -177,6 +178,39 @@ const MeetingPage: React.FC = () => {
         }
     };
 
+    const flipCamera = async () => {
+        if (!stream) return;
+
+        try {
+            const newMode = facingMode === 'user' ? 'environment' : 'user';
+
+            const newStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: newMode }
+            });
+
+            const newVideoTrack = newStream.getVideoTracks()[0];
+            const oldVideoTrack = stream.getVideoTracks()[0];
+
+            if (connectionRef.current) {
+                connectionRef.current.replaceTrack(oldVideoTrack, newVideoTrack, stream);
+            }
+
+            stream.removeTrack(oldVideoTrack);
+            stream.addTrack(newVideoTrack);
+            oldVideoTrack.stop();
+
+            newVideoTrack.enabled = !videoMuted;
+
+            if (myVideo.current) {
+                myVideo.current.srcObject = stream;
+            }
+
+            setFacingMode(newMode);
+        } catch (error) {
+            console.error('[MEETING] Error flipping camera:', error);
+        }
+    };
+
     return (
         <div className="flex flex-col h-screen bg-slate-950 text-white relative overflow-hidden">
             {/* Header */}
@@ -260,6 +294,15 @@ const MeetingPage: React.FC = () => {
                                 <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
                             </svg>
                         )}
+                    </button>
+                    <button
+                        onClick={flipCamera}
+                        className="p-4 rounded-full transition-all transform hover:scale-110 bg-slate-700 text-white hover:bg-slate-600"
+                        title="Flip Camera"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-6">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                        </svg>
                     </button>
                 </div>
             </div>
