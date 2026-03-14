@@ -214,12 +214,24 @@ const MeetingPage: React.FC = () => {
         try {
             const newMode = facingMode === 'user' ? 'environment' : 'user';
 
-            const newStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: newMode }
-            });
+            // Stop the old video track first for better mobile browser compatibility
+            const oldVideoTrack = stream.getVideoTracks()[0];
+            if (oldVideoTrack) oldVideoTrack.stop();
+
+            let newStream;
+            try {
+                // Try to get exact camera (vital for iOS/Android back camera)
+                newStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { exact: newMode } }
+                });
+            } catch (err) {
+                // Fallback for laptops or devices that don't support 'exact' constraints
+                newStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: newMode }
+                });
+            }
 
             const newVideoTrack = newStream.getVideoTracks()[0];
-            const oldVideoTrack = stream.getVideoTracks()[0];
 
             if (connectionRef.current) {
                 connectionRef.current.replaceTrack(oldVideoTrack, newVideoTrack, stream);
@@ -227,7 +239,6 @@ const MeetingPage: React.FC = () => {
 
             stream.removeTrack(oldVideoTrack);
             stream.addTrack(newVideoTrack);
-            oldVideoTrack.stop();
 
             newVideoTrack.enabled = !videoMuted;
 
@@ -238,6 +249,22 @@ const MeetingPage: React.FC = () => {
             setFacingMode(newMode);
         } catch (error) {
             console.error('[MEETING] Error flipping camera:', error);
+            alert("Failed to switch camera. It might be blocked or unavailable.");
+            
+            // Try to recover the old stream if switch failed and we stopped it
+            try {
+                const recoveredStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: facingMode }
+                });
+                const recoveredTrack = recoveredStream.getVideoTracks()[0];
+                stream.addTrack(recoveredTrack);
+                if (connectionRef.current) {
+                    connectionRef.current.replaceTrack(stream.getVideoTracks()[0], recoveredTrack, stream);
+                }
+                if (myVideo.current) myVideo.current.srcObject = stream;
+            } catch (recoveryError) {
+                console.error("Camera recovery failed", recoveryError);
+            }
         }
     };
 
@@ -261,7 +288,7 @@ const MeetingPage: React.FC = () => {
             <div className="flex-1 flex items-center justify-center p-4 gap-4 flex-wrap content-center">
                 {/* My Video */}
                 <div className="relative w-full md:w-[48%] aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-slate-800 transition-all hover:border-slate-600 group">
-                    <video playsInline ref={myVideo} autoPlay muted className="w-full h-full object-cover transform scale-x-[-1]" />
+                    <video playsInline ref={myVideo} autoPlay muted className={`w-full h-full object-cover transform ${facingMode === 'user' ? 'scale-x-[-1]' : ''}`} />
                     <div className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2">
                         <span>You</span>
                         {voiceMuted && <span className="text-red-400 text-xs">(Muted)</span>}
@@ -271,7 +298,7 @@ const MeetingPage: React.FC = () => {
                 {/* User Video */}
                 {callAccepted && !callEnded ? (
                     <div className="relative w-full md:w-[48%] aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
-                        <video playsInline ref={userVideo} autoPlay className="w-full h-full object-cover transform scale-x-[-1]" />
+                        <video playsInline ref={userVideo} autoPlay className="w-full h-full object-cover" />
                         <div className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-full text-sm font-medium">
                             Peer
                         </div>
