@@ -57,9 +57,11 @@ const MeetingPage: React.FC = () => {
 
                 // Listen for call acceptance
                 socket.current.on("call-accepted-signal", (signal: any) => {
-                    console.log('[MEETING] Call accepted, signaling peer');
+                    console.log('[MEETING] Received signal, signaling peer');
                     setCallAccepted(true);
-                    connectionRef.current?.signal(signal);
+                    if (connectionRef.current) {
+                        connectionRef.current.signal(signal);
+                    }
                 });
 
             } catch (error) {
@@ -79,12 +81,15 @@ const MeetingPage: React.FC = () => {
     const initiateCall = (targetSocketId: string, mediaStream: MediaStream) => {
         const peer = new SimplePeer({
             initiator: true,
-            trickle: false,
+            trickle: true,
             stream: mediaStream,
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
                     { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' },
                     {
                         urls: "turn:openrelay.metered.ca:80",
                         username: "openrelayproject",
@@ -94,13 +99,9 @@ const MeetingPage: React.FC = () => {
                         urls: "turn:openrelay.metered.ca:443",
                         username: "openrelayproject",
                         credential: "openrelayproject"
-                    },
-                    {
-                        urls: "turn:openrelay.metered.ca:443?transport=tcp",
-                        username: "openrelayproject",
-                        credential: "openrelayproject"
                     }
-                ]
+                ],
+                iceCandidatePoolSize: 10
             }
         });
 
@@ -133,12 +134,15 @@ const MeetingPage: React.FC = () => {
         setCallAccepted(true);
         const peer = new SimplePeer({
             initiator: false,
-            trickle: false,
+            trickle: true,
             stream: mediaStream,
             config: {
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
                     { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' },
                     {
                         urls: "turn:openrelay.metered.ca:80",
                         username: "openrelayproject",
@@ -148,13 +152,9 @@ const MeetingPage: React.FC = () => {
                         urls: "turn:openrelay.metered.ca:443",
                         username: "openrelayproject",
                         credential: "openrelayproject"
-                    },
-                    {
-                        urls: "turn:openrelay.metered.ca:443?transport=tcp",
-                        username: "openrelayproject",
-                        credential: "openrelayproject"
                     }
-                ]
+                ],
+                iceCandidatePoolSize: 10
             }
         });
 
