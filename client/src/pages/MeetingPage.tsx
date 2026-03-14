@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import SimplePeer from 'simple-peer';
 import { io, Socket } from 'socket.io-client';
 import { useAppSelector } from '../app/hooks';
+import toast from 'react-hot-toast';
 
 const ENDPOINT = import.meta.env.VITE_SOCKET_URL || 'https://prochat-k2jw.onrender.com';
 
@@ -14,6 +15,7 @@ const MeetingPage: React.FC = () => {
     const [stream, setStream] = useState<MediaStream | null>(null);
     const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
     const [callAccepted, setCallAccepted] = useState(false);
+    const [callConnected, setCallConnected] = useState(false);
     const [voiceMuted, setVoiceMuted] = useState(false);
     const [videoMuted, setVideoMuted] = useState(false);
     const [callEnded, setCallEnded] = useState(false);
@@ -142,6 +144,16 @@ const MeetingPage: React.FC = () => {
 
         connectionRef.current = peer;
 
+        peer.on("connect", () => {
+            console.log('[MEETING] Peer connected!');
+            setCallConnected(true);
+        });
+
+        peer.on("error", (err) => {
+            console.error('[MEETING] Peer error:', err);
+            toast.error("Connection failed. Retrying...");
+        });
+
         peer.on("signal", (data) => {
             console.log('[MEETING] Sending signal to:', targetSocketId);
             socket.current?.emit("call-user", {
@@ -205,15 +217,8 @@ const MeetingPage: React.FC = () => {
 
         connectionRef.current = peer;
 
-        // 1. SIGNAL THE OFFER FIRST
-        peer.signal(callData.signal);
-
-        // 2. PROCESS QUEUED CANDIDATES
-        pendingSignals.current.forEach(sig => peer.signal(sig));
-        pendingSignals.current = [];
-
         peer.on("signal", (data) => {
-            console.log('[MEETING] Answering call');
+            console.log('[MEETING] Answering call signal event');
             socket.current?.emit("answer-call", {
                 signal: data,
                 to: callData.from
@@ -225,9 +230,20 @@ const MeetingPage: React.FC = () => {
             setRemoteStream(remoteStream);
         });
 
+        peer.on("connect", () => {
+            console.log('[MEETING] Peer connected (answer)!');
+            setCallConnected(true);
+        });
+
         peer.on("error", (err) => {
             console.error('[MEETING] Peer error (answer):', err);
+            toast.error("Connection failed. Retrying...");
         });
+
+        // SIGNAL THE OFFER AND CANDIDATES LAST, AFTER ALL LISTENERS ARE SET
+        peer.signal(callData.signal);
+        pendingSignals.current.forEach(sig => peer.signal(sig));
+        pendingSignals.current = [];
     };
 
     const leaveCall = () => {
@@ -348,8 +364,14 @@ const MeetingPage: React.FC = () => {
                 {callAccepted && !callEnded ? (
                     <div className="relative w-full md:w-[48%] aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
                         <video playsInline ref={userVideo} autoPlay className="w-full h-full object-cover" />
+                        {!callConnected && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 backdrop-blur-md">
+                                <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                                <p className="text-blue-400 font-medium animate-pulse">Connecting cross-network...</p>
+                            </div>
+                        )}
                         <div className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-full text-sm font-medium">
-                            Peer
+                            Peer {callConnected ? ' (Connected)' : ' (Connecting...)'}
                         </div>
                     </div>
                 ) : (
