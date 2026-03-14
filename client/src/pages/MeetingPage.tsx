@@ -51,8 +51,12 @@ const MeetingPage: React.FC = () => {
 
                 // Listen for incoming calls
                 socket.current.on("call-user", (data: any) => {
-                    console.log('[MEETING] Receiving call from:', data.from);
-                    answerCall(data, currentStream);
+                    console.log(`[MEETING] Incoming signal from ${data.from}`);
+                    if (connectionRef.current) {
+                        connectionRef.current.signal(data.signal);
+                    } else {
+                        answerCall(data, currentStream);
+                    }
                 });
 
                 // Listen for call acceptance
@@ -90,6 +94,7 @@ const MeetingPage: React.FC = () => {
                     { urls: 'stun:stun2.l.google.com:19302' },
                     { urls: 'stun:stun3.l.google.com:19302' },
                     { urls: 'stun:stun4.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' },
                     {
                         urls: "turn:openrelay.metered.ca:80",
                         username: "openrelayproject",
@@ -97,6 +102,11 @@ const MeetingPage: React.FC = () => {
                     },
                     {
                         urls: "turn:openrelay.metered.ca:443",
+                        username: "openrelayproject",
+                        credential: "openrelayproject"
+                    },
+                    {
+                        urls: "turn:openrelay.metered.ca:443?transport=tcp",
                         username: "openrelayproject",
                         credential: "openrelayproject"
                     }
@@ -143,6 +153,7 @@ const MeetingPage: React.FC = () => {
                     { urls: 'stun:stun2.l.google.com:19302' },
                     { urls: 'stun:stun3.l.google.com:19302' },
                     { urls: 'stun:stun4.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' },
                     {
                         urls: "turn:openrelay.metered.ca:80",
                         username: "openrelayproject",
@@ -150,6 +161,11 @@ const MeetingPage: React.FC = () => {
                     },
                     {
                         urls: "turn:openrelay.metered.ca:443",
+                        username: "openrelayproject",
+                        credential: "openrelayproject"
+                    },
+                    {
+                        urls: "turn:openrelay.metered.ca:443?transport=tcp",
                         username: "openrelayproject",
                         credential: "openrelayproject"
                     }
