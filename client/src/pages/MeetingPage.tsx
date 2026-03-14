@@ -11,7 +11,8 @@ const MeetingPage: React.FC = () => {
     const { user } = useAppSelector((state) => state.auth);
     const navigate = useNavigate();
 
-    const [stream, setStream] = useState<MediaStream>();
+    const [stream, setStream] = useState<MediaStream | null>(null);
+    const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
     const [callAccepted, setCallAccepted] = useState(false);
     const [voiceMuted, setVoiceMuted] = useState(false);
     const [videoMuted, setVideoMuted] = useState(false);
@@ -28,6 +29,36 @@ const MeetingPage: React.FC = () => {
             socket.current = io(ENDPOINT);
 
             // Get user media first
+            // Listen for other users in room
+            socket.current.on('user-joined', (socketId: string) => {
+                console.log('[MEETING] Other user joined:', socketId);
+                // If we are the ones already in the room, we initiate the call
+                // But we need to make sure WE have our stream ready
+                setCallAccepted(true); // Show the video placeholder early
+            });
+
+            // Listen for incoming signals (offer, answer, candidates)
+            socket.current.on("call-user", (data: any) => {
+                console.log(`[MEETING] Received signal (${data.signal.type || 'candidate'}) from ${data.from}`);
+                if (connectionRef.current) {
+                    connectionRef.current.signal(data.signal);
+                } else if (data.signal.type === 'offer') {
+                    // Only start answerCall if it's an offer
+                    setCallAccepted(true);
+                    // We need the stream to answer, but it's captured in the closure
+                }
+            });
+
+            // Listen for call acceptance (answer/candidates from responder)
+            socket.current.on("call-accepted-signal", (signal: any) => {
+                console.log(`[MEETING] Received acceptance signal (${signal.type || 'candidate'})`);
+                setCallAccepted(true);
+                if (connectionRef.current) {
+                    connectionRef.current.signal(signal);
+                }
+            });
+
+            // Get user media
             try {
                 const currentStream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: 'user' },
@@ -38,33 +69,21 @@ const MeetingPage: React.FC = () => {
                     myVideo.current.srcObject = currentStream;
                 }
 
-                // Join meeting room
+                // Now that media is ready, join the room
                 socket.current.emit("join meeting", meetingId);
 
-                // Listen for other users in room
+                // Re-attach listeners with the stream available in closure
+                socket.current.off('user-joined');
                 socket.current.on('user-joined', (socketId: string) => {
-                    console.log('[MEETING] User joined:', socketId);
-                    if (!connectionRef.current) {
-                        initiateCall(socketId, currentStream);
-                    }
+                    initiateCall(socketId, currentStream);
                 });
 
-                // Listen for incoming calls
+                socket.current.off("call-user");
                 socket.current.on("call-user", (data: any) => {
-                    console.log(`[MEETING] Incoming signal from ${data.from}`);
                     if (connectionRef.current) {
                         connectionRef.current.signal(data.signal);
-                    } else {
+                    } else if (data.signal.type === 'offer') {
                         answerCall(data, currentStream);
-                    }
-                });
-
-                // Listen for call acceptance
-                socket.current.on("call-accepted-signal", (signal: any) => {
-                    console.log('[MEETING] Received signal, signaling peer');
-                    setCallAccepted(true);
-                    if (connectionRef.current) {
-                        connectionRef.current.signal(signal);
                     }
                 });
 
@@ -127,18 +146,19 @@ const MeetingPage: React.FC = () => {
 
         peer.on("stream", (remoteStream) => {
             console.log('[MEETING] Received remote stream');
-            if (userVideo.current) {
-                userVideo.current.srcObject = remoteStream;
-            }
+            setRemoteStream(remoteStream);
             setCallAccepted(true);
         });
 
-        peer.on("error", (err) => {
-            console.error('[MEETING] Peer error:', err);
-        });
-
+        // Add Effect to handle remote stream attachment
         connectionRef.current = peer;
     };
+
+    useEffect(() => {
+        if (remoteStream && userVideo.current) {
+            userVideo.current.srcObject = remoteStream;
+        }
+    }, [remoteStream, callAccepted]);
 
     const answerCall = (callData: any, mediaStream: MediaStream) => {
         setCallAccepted(true);
@@ -184,9 +204,7 @@ const MeetingPage: React.FC = () => {
 
         peer.on("stream", (remoteStream) => {
             console.log('[MEETING] Received remote stream (answer)');
-            if (userVideo.current) {
-                userVideo.current.srcObject = remoteStream;
-            }
+            setRemoteStream(remoteStream);
         });
 
         peer.on("error", (err) => {
