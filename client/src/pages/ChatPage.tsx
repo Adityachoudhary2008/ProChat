@@ -7,7 +7,7 @@ import UserListItem from '../components/UserListItem';
 import { io, Socket } from 'socket.io-client';
 import toast from 'react-hot-toast';
 
-const ENDPOINT = import.meta.env.VITE_SOCKET_URL || 'https://prochat-production.up.railway.app';
+const ENDPOINT = import.meta.env.VITE_SOCKET_URL || 'https://prochat-k2jw.onrender.com';
 
 interface ChatUser {
     _id: string;

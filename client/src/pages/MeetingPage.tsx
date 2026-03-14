@@ -4,7 +4,7 @@ import SimplePeer from 'simple-peer';
 import { io, Socket } from 'socket.io-client';
 import { useAppSelector } from '../app/hooks';
 
-const ENDPOINT = import.meta.env.VITE_SOCKET_URL || 'https://prochat-production.up.railway.app';
+const ENDPOINT = import.meta.env.VITE_SOCKET_URL || 'https://prochat-k2jw.onrender.com';
 
 const MeetingPage: React.FC = () => {
     const { meetingId } = useParams();
