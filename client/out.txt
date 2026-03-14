@@ -1,0 +1,22 @@
+Debugger listening on ws://127.0.0.1:55783/7a22d155-2dfc-4d41-839f-9b204c050970
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+Debugger listening on ws://127.0.0.1:55786/452edda3-c8f1-4926-814c-8b081e8eaf95
+For help, see: https://nodejs.org/en/docs/inspector
+Debugger attached.
+[36mvite v7.3.1 [32mbuilding client environment for production...[36m[39m
+transforming...
+[32mΓ£ô[39m 247 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[22m[32mindex.html                 [39m[1m[2m  0.45 kB[22m[1m[22m[2m Γöé gzip:   0.29 kB[22m
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+[2mdist/[22m[35massets/index-B4iIX1Bg.css  [39m[1m[2m 49.89 kB[22m[1m[22m[2m Γöé gzip:   8.40 kB[22m
+[2mdist/[22m[36massets/index-BoO52lUZ.js   [39m[1m[33m595.04 kB[39m[22m[2m Γöé gzip: 184.49 kB[22m
+[32mΓ£ô built in 4.73s[39m
+Waiting for the debugger to disconnect...
+Waiting for the debugger to disconnect...
