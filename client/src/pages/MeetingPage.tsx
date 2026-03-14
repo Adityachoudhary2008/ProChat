@@ -23,6 +23,7 @@ const MeetingPage: React.FC = () => {
     const userVideo = useRef<HTMLVideoElement>(null);
     const connectionRef = useRef<SimplePeer.Instance | null>(null);
     const socket = useRef<Socket | null>(null);
+    const pendingSignals = useRef<any[]>([]);
 
     useEffect(() => {
         const initializeCall = async () => {
@@ -43,9 +44,11 @@ const MeetingPage: React.FC = () => {
                 if (connectionRef.current) {
                     connectionRef.current.signal(data.signal);
                 } else if (data.signal.type === 'offer') {
-                    // Only start answerCall if it's an offer
                     setCallAccepted(true);
-                    // We need the stream to answer, but it's captured in the closure
+                    // answerCall will handle it when it runs
+                } else {
+                    // Buffer candidate signals if they arrive before the peer is ready
+                    pendingSignals.current.push(data.signal);
                 }
             });
 
@@ -84,6 +87,8 @@ const MeetingPage: React.FC = () => {
                         connectionRef.current.signal(data.signal);
                     } else if (data.signal.type === 'offer') {
                         answerCall(data, currentStream);
+                    } else {
+                        pendingSignals.current.push(data.signal);
                     }
                 });
 
@@ -113,6 +118,7 @@ const MeetingPage: React.FC = () => {
                     { urls: 'stun:stun2.l.google.com:19302' },
                     { urls: 'stun:stun3.l.google.com:19302' },
                     { urls: 'stun:stun4.l.google.com:19302' },
+                    { urls: 'stun:stun.services.mozilla.com' },
                     { urls: 'stun:global.stun.twilio.com:3478' },
                     {
                         urls: "turn:openrelay.metered.ca:80",
@@ -133,6 +139,8 @@ const MeetingPage: React.FC = () => {
                 iceCandidatePoolSize: 10
             }
         });
+
+        connectionRef.current = peer;
 
         peer.on("signal", (data) => {
             console.log('[MEETING] Sending signal to:', targetSocketId);
@@ -173,6 +181,7 @@ const MeetingPage: React.FC = () => {
                     { urls: 'stun:stun2.l.google.com:19302' },
                     { urls: 'stun:stun3.l.google.com:19302' },
                     { urls: 'stun:stun4.l.google.com:19302' },
+                    { urls: 'stun:stun.services.mozilla.com' },
                     { urls: 'stun:global.stun.twilio.com:3478' },
                     {
                         urls: "turn:openrelay.metered.ca:80",
@@ -194,6 +203,15 @@ const MeetingPage: React.FC = () => {
             }
         });
 
+        connectionRef.current = peer;
+
+        // 1. SIGNAL THE OFFER FIRST
+        peer.signal(callData.signal);
+
+        // 2. PROCESS QUEUED CANDIDATES
+        pendingSignals.current.forEach(sig => peer.signal(sig));
+        pendingSignals.current = [];
+
         peer.on("signal", (data) => {
             console.log('[MEETING] Answering call');
             socket.current?.emit("answer-call", {
@@ -210,9 +228,6 @@ const MeetingPage: React.FC = () => {
         peer.on("error", (err) => {
             console.error('[MEETING] Peer error (answer):', err);
         });
-
-        peer.signal(callData.signal);
-        connectionRef.current = peer;
     };
 
     const leaveCall = () => {
